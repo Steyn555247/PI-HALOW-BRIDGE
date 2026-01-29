@@ -1,0 +1,63 @@
+[Unit]
+Description=Serpent Base Pi HaLow Bridge
+Documentation=https://github.com/serpent-robotics/pi-halow-bridge
+After=network-online.target
+Wants=network-online.target
+
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/serpent/pi_halow_bridge/base_pi
+RuntimeDirectory=serpent
+
+# Core configuration
+Environment="ROBOT_PI_IP=192.168.100.2"
+Environment="CONTROL_PORT=5001"
+Environment="VIDEO_PORT=5002"
+Environment="TELEMETRY_PORT=5003"
+Environment="BACKEND_SOCKETIO_URL=http://localhost:5000"
+Environment="LOG_LEVEL=INFO"
+# PSK must be set via drop-in override or EnvironmentFile
+# Environment="SERPENT_PSK_HEX=<64-char-hex-key>"
+
+ExecStart=/usr/bin/python3 /home/pi/serpent/pi_halow_bridge/base_pi/halow_bridge.py
+
+# Restart on failure - base bridge disconnection triggers robot E-STOP via watchdog
+Restart=always
+RestartSec=3
+WatchdogSec=30
+
+# Resource limits
+LimitNOFILE=1024
+MemoryMax=256M
+CPUQuota=80%
+
+# Security hardening (stricter than robot - no hardware access needed)
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+
+# File system access
+ReadWritePaths=/var/log/serpent /run/serpent
+
+# Network restrictions (needs TCP for robot + backend)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# System call filtering
+SystemCallFilter=@system-service @network-io
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

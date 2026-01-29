@@ -1,0 +1,78 @@
+[Unit]
+Description=Serpent Robot Pi HaLow Bridge
+Documentation=https://github.com/serpent-robotics/pi-halow-bridge
+After=network-online.target
+Wants=network-online.target
+
+# SAFETY: Start E-STOP engaged on boot - this service must start for robot to operate
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+# Groups required for hardware access (I2C, GPIO, video)
+SupplementaryGroups=i2c gpio video
+
+WorkingDirectory=/home/pi/serpent/pi_halow_bridge/robot_pi
+RuntimeDirectory=serpent
+
+# Core configuration
+Environment="BASE_PI_IP=192.168.100.1"
+Environment="CONTROL_PORT=5001"
+Environment="VIDEO_PORT=5002"
+Environment="TELEMETRY_PORT=5003"
+Environment="I2C_BUS=1"
+Environment="LOG_LEVEL=INFO"
+# PSK must be set via drop-in override or EnvironmentFile
+# Environment="SERPENT_PSK_HEX=<64-char-hex-key>"
+
+ExecStart=/usr/bin/python3 /home/pi/serpent/pi_halow_bridge/robot_pi/halow_bridge.py
+
+# SAFETY: Always restart - robot defaults to E-STOP if service not running
+Restart=always
+RestartSec=3
+WatchdogSec=30
+
+# Resource limits
+LimitNOFILE=1024
+MemoryMax=256M
+CPUQuota=80%
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+
+# File system protection (strict mode with required exceptions)
+ProtectSystem=strict
+ReadWritePaths=/var/log/serpent /run/serpent
+
+# NOTE: Cannot use PrivateDevices=yes - need I2C/GPIO/Camera access
+# Device access control - whitelist only required devices
+DevicePolicy=closed
+DeviceAllow=/dev/i2c-1 rw
+DeviceAllow=/dev/i2c-* rw
+DeviceAllow=/dev/gpiomem rw
+DeviceAllow=/dev/mem rw
+DeviceAllow=/dev/video* rw
+DeviceAllow=/dev/null rw
+DeviceAllow=/dev/zero rw
+DeviceAllow=/dev/urandom r
+
+# Network restrictions
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# System call filtering (allow GPIO/I2C operations)
+SystemCallFilter=@system-service @io-event
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
