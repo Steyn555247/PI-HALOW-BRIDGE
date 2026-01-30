@@ -1,370 +1,344 @@
 # Pi HaLow Bridge - Quick Reference
 
-## Common Commands
+## 🚀 Quick Commands
 
-### System Control
-
-```bash
-# Start services
-sudo systemctl start serpent-base-bridge    # Base Pi
-sudo systemctl start serpent-robot-bridge   # Robot Pi
-
-# Stop services
-sudo systemctl stop serpent-base-bridge
-sudo systemctl stop serpent-robot-bridge
-
-# Restart services
-sudo systemctl restart serpent-base-bridge
-sudo systemctl restart serpent-robot-bridge
-
-# Enable on boot
-sudo systemctl enable serpent-base-bridge
-sudo systemctl enable serpent-robot-bridge
-
-# Check status
-sudo systemctl status serpent-base-bridge
-sudo systemctl status serpent-robot-bridge
-
-# View logs (real-time)
-journalctl -u serpent-base-bridge -f
-journalctl -u serpent-robot-bridge -f
-
-# View last 50 lines
-journalctl -u serpent-base-bridge -n 50
-journalctl -u serpent-robot-bridge -n 50
-```
-
-### Network Diagnostics
+### Setup & Run Simulation
 
 ```bash
-# Test HaLow link
-ping 192.168.100.2   # From Base Pi
-ping 192.168.100.1   # From Robot Pi
+# Set PSK (required)
+export SERPENT_PSK_HEX=$(python -c "import secrets; print(secrets.token_hex(32))")
 
-# Check open ports
-sudo netstat -tlnp | grep 500[1-3]
+# Run simulation (both bridges)
+python scripts/run_sim.py
 
-# Test port connectivity
-nc -zv 192.168.100.2 5001   # Control port
-nc -zv 192.168.100.2 5002   # Video port
-nc -zv 192.168.100.2 5003   # Telemetry port
+# Run only Robot Pi
+python scripts/run_sim.py --robot-only
+
+# Run only Base Pi
+python scripts/run_sim.py --base-only
 ```
 
-### I2C Diagnostics (Robot Pi)
+### Test Video HTTP Endpoint
 
 ```bash
-# List I2C buses
-ls /dev/i2c-*
+# Health check
+curl http://localhost:5004/health
 
-# Scan I2C bus 1
-sudo i2cdetect -y 1
+# Single frame
+curl http://localhost:5004/frame > test_frame.jpg
 
-# Expected devices:
-# 0x10, 0x11, 0x12, 0x13 - Motoron boards
-# 0x4A - BNO085 IMU
-# 0x77 - BMP388 Barometer
+# MJPEG stream (use Ctrl+C to stop)
+curl http://localhost:5004/video > stream.mjpeg
 ```
 
-### Camera Diagnostics (Robot Pi)
+### Run Tests
 
 ```bash
-# List video devices
-v4l2-ctl --list-devices
+# Unit tests
+python scripts/test_all.py
+python scripts/test_all.py framing
+python scripts/test_all.py estop
 
-# Test camera capture
-ffplay /dev/video0
+# Quick stress test (15 min)
+pip install pytest psutil
+python scripts/run_stress_suite.py --quick
 
-# Check camera capabilities
-v4l2-ctl -d /dev/video0 --all
+# Full stress test (2+ hours)
+python scripts/run_stress_suite.py --phase all --duration 120
 ```
 
-## Configuration Files
+---
 
-### Base Pi
-```
-/home/pi/serpent/pi_halow_bridge/base_pi/.env
+## 📡 Architecture Overview
+
+### Control Channel (Base → Robot, TCP:5001)
+- **Robot Pi is SERVER** (accepts connections from Base Pi)
+- **Base Pi is CLIENT** (connects to Robot Pi)
+- HMAC-SHA256 authenticated, replay protection
+- Highest priority
+
+### Telemetry Channel (Robot → Base, TCP:5003)
+- Robot Pi is CLIENT (connects to Base Pi)
+- Base Pi is SERVER (receives from Robot Pi)
+- HMAC-SHA256 authenticated
+- 10 Hz (100ms interval)
+- Includes RTT from ping/pong
+
+### Video Channel (Robot → Base, TCP:5002)
+- Robot Pi is CLIENT (connects to Base Pi)
+- Base Pi is SERVER (receives from Robot Pi)
+- Unauthenticated MJPEG stream
+- 640×480 @ 10 FPS
+- Backpressure: frames dropped if socket blocked
+
+### Video HTTP (Base Pi, HTTP:5004)
+- MJPEG streaming to browser/clients
+- Endpoints: `/video`, `/frame`, `/health`
+- Serves frames from Video Receiver
+
+---
+
+## 🔐 PSK Management
+
+### Generate PSK
+
+```bash
+python generate_psk.py
+# OR
+python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Key settings:
-- `ROBOT_PI_IP=192.168.100.2`
-- `BACKEND_SOCKETIO_URL=http://localhost:5000`
-- `VIDEO_ENABLED=true`
-- `WATCHDOG_TIMEOUT=5.0`
+### Deploy to Raspberry Pis
+
+```bash
+# Both Pis
+sudo mkdir -p /etc/serpent
+sudo chmod 700 /etc/serpent
+echo "YOUR_64_CHAR_PSK" | sudo tee /etc/serpent/psk
+sudo chmod 600 /etc/serpent/psk
+
+# Verify
+cat /etc/serpent/psk | wc -c  # Should output 64
+```
+
+---
+
+## 🚢 Deployment
 
 ### Robot Pi
+
+```bash
+git clone https://github.com/Steyn555247/PI-HALOW-BRIDGE.git
+cd PI-HALOW-BRIDGE
+sudo ./scripts/pi_install.sh --robot
+sudo ./scripts/pi_enable_services.sh --robot
+sudo systemctl status serpent-robot-bridge
 ```
-/home/pi/serpent/pi_halow_bridge/robot_pi/.env
+
+### Base Pi
+
+```bash
+git clone https://github.com/Steyn555247/PI-HALOW-BRIDGE.git
+cd PI-HALOW-BRIDGE
+sudo ./scripts/pi_install.sh --base
+sudo ./scripts/pi_enable_services.sh --base
+sudo systemctl status serpent-base-bridge
+
+# Test video endpoint
+curl http://localhost:5004/health
 ```
 
-Key settings:
-- `BASE_PI_IP=192.168.100.1`
-- `CAMERA_0=/dev/video0`
-- `I2C_BUS=1`
-- `BNO085_ADDRESS=0x4A`
-- `MOTORON_ADDR_0=0x10`
+---
 
-## Port Reference
+## 🛡️ Safety Invariants (Critical)
 
-| Port | Direction | Protocol | Purpose |
-|------|-----------|----------|---------|
-| 5001 | Base → Robot | TCP | Control commands |
-| 5002 | Robot → Base | TCP | Video stream (MJPEG) |
-| 5003 | Robot → Base | TCP | Telemetry (JSON) |
-| 5000 | TrimUI → Base | HTTP/WS | serpent_backend |
+1. **E-STOP Boot Latched** - Robot boots with E-STOP ENGAGED
+2. **Watchdog Timeout** - 5 seconds without control → E-STOP
+3. **E-STOP SET Semantics** - Never toggle, always explicit engage/clear
+4. **HMAC Authentication** - All control/telemetry authenticated
+5. **Control Priority** - Video never starves control
+6. **Fail-Safe** - Any error → E-STOP
 
-## Message Formats
+---
+
+## 🔧 Troubleshooting
+
+### Kill Orphan Processes
+
+```bash
+# Windows
+powershell -Command "Stop-Process -Name python -Force"
+
+# Linux
+sudo pkill -9 -f halow_bridge
+```
+
+### Check Service Status
+
+```bash
+sudo systemctl status serpent-robot-bridge
+sudo systemctl status serpent-base-bridge
+sudo journalctl -u serpent-robot-bridge -f
+sudo journalctl -u serpent-base-bridge -f
+```
+
+### Check Connections
+
+```bash
+# Check ports
+ss -tlnp | grep 500
+
+# Check PSK
+cat /etc/serpent/psk | wc -c
+
+# Ping test
+ping 192.168.100.2  # Base → Robot
+ping 192.168.100.1  # Robot → Base
+```
+
+### E-STOP Won't Clear
+
+```bash
+# Check logs for rejection reason
+sudo journalctl -u serpent-robot-bridge | grep "REJECTED"
+sudo journalctl -u serpent-robot-bridge | grep "CLEAR"
+
+# Verify PSK
+cat /etc/serpent/psk | wc -c  # Must be 64
+```
+
+### No Telemetry
+
+```bash
+# Check Robot Pi sending
+sudo journalctl -u serpent-robot-bridge | grep "telemetry"
+
+# Check Base Pi receiving
+sudo journalctl -u serpent-base-bridge | grep "telemetry_received"
+
+# Check HMAC failures
+sudo journalctl -u serpent-base-bridge | grep "HMAC"
+```
+
+### No Video
+
+```bash
+# Check cameras (Robot Pi)
+ls -la /dev/video*
+v4l2-ctl --list-devices
+
+# Check video stats
+sudo journalctl -u serpent-robot-bridge | grep "frames_sent\|frames_dropped"
+
+# Test HTTP endpoint (Base Pi)
+curl http://localhost:5004/health
+curl http://localhost:5004/frame > test.jpg
+```
+
+---
+
+## 📊 Environment Variables
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `SERPENT_PSK_HEX` | - | **Yes** | 64-char hex PSK |
+| `SIM_MODE` | `false` | No | Enable simulation mode |
+| `ROBOT_PI_IP` | `192.168.100.2` | No | Robot Pi IP |
+| `BASE_PI_IP` | `192.168.100.1` | No | Base Pi IP |
+| `CONTROL_PORT` | `5001` | No | Control channel port |
+| `VIDEO_PORT` | `5002` | No | Video channel port |
+| `TELEMETRY_PORT` | `5003` | No | Telemetry channel port |
+| `VIDEO_HTTP_PORT` | `5004` | No | Video HTTP port (Base Pi) |
+| `LOG_LEVEL` | `INFO` | No | Logging level |
+
+---
+
+## 🧪 Stress Testing
+
+### Quick Test (15 min)
+
+```bash
+pip install pytest psutil
+export SERPENT_PSK_HEX=$(python -c "import secrets; print(secrets.token_hex(32))")
+python scripts/run_stress_suite.py --quick
+```
+
+### Individual Phases
+
+```bash
+# Fault injection
+pytest tests/test_fault_injection.py -v
+
+# E-STOP verification
+pytest tests/test_estop_triggers.py -v
+
+# Network stress
+python scripts/stress_network_sim.py --test all --quick
+
+# Reconnect stress
+python scripts/stress_reconnect.py --test all --cycles 20
+
+# Load stress
+python scripts/stress_load.py --test all --duration 60
+```
+
+---
+
+## 📡 Protocol Messages
 
 ### Control (Base → Robot)
+
 ```json
-{"type": "emergency_toggle", "data": {}, "timestamp": 1234567890.123}
-{"type": "clamp_close", "data": {}, "timestamp": 1234567890.123}
-{"type": "start_camera", "data": {"camera_id": 0}, "timestamp": 1234567890.123}
+{"type": "emergency_stop", "data": {"engage": true, "reason": "operator"}}
+{"type": "emergency_stop", "data": {"engage": false, "confirm_clear": "ESTOP_CLEAR_CONFIRM"}}
+{"type": "ping", "data": {"ts": 1234567890.123, "seq": 1}}
+{"type": "clamp_close", "data": {}}
+{"type": "clamp_open", "data": {}}
+{"type": "start_camera", "data": {"camera_id": 0}}
 ```
 
 ### Telemetry (Robot → Base)
+
 ```json
 {
   "voltage": 12.6,
   "height": 45.0,
-  "imu": {"quat_w": 0.99, "accel_z": 9.8, ...},
-  "barometer": {"pressure": 1013.25, "altitude": 100.0},
-  "motor_currents": [0.5, 0.3, ...],
-  "connection_latency": 15,
+  "estop": {"engaged": false},
+  "pong": {"ping_ts": 1234567890.123, "ping_seq": 1},
+  "control_age_ms": 50,
+  "rtt_ms": 25,
   "timestamp": 1234567890.123
 }
 ```
 
-## I2C Address Map (Robot Pi)
+---
 
-| Device | Address | Interface |
-|--------|---------|-----------|
-| Motoron Board 0 | 0x10 | I2C Bus 1 |
-| Motoron Board 1 | 0x11 | I2C Bus 1 |
-| Motoron Board 2 | 0x12 | I2C Bus 1 |
-| Motoron Board 3 | 0x13 | I2C Bus 1 |
-| BNO085 IMU | 0x4A | I2C Bus 1 |
-| BMP388 Barometer | 0x77 | I2C Bus 1 |
-| Servo | GPIO 12 | Hardware PWM |
+## 🔒 Safety Constants (Immutable)
 
-## Motor Channel Map
+| Constant | Value | Cannot Override |
+|----------|-------|-----------------|
+| `WATCHDOG_TIMEOUT_S` | `5.0` | ✅ Immutable |
+| `STARTUP_GRACE_S` | `30.0` | ✅ Immutable |
+| `ESTOP_CLEAR_MAX_AGE_S` | `1.5` | ✅ Immutable |
+| `ESTOP_CLEAR_CONFIRM` | `"ESTOP_CLEAR_CONFIRM"` | ✅ Immutable |
+| `HEARTBEAT_INTERVAL_S` | `1.0` | ✅ Immutable |
 
-| Motor ID | Motoron Board | Channel | Usage |
-|----------|---------------|---------|-------|
-| 0 | 0 (0x10) | 1 | Motor 0 |
-| 1 | 0 (0x10) | 2 | Motor 1 |
-| 2 | 1 (0x11) | 1 | Motor 2 |
-| 3 | 1 (0x11) | 2 | Motor 3 |
-| 4 | 2 (0x12) | 1 | Motor 4 |
-| 5 | 2 (0x12) | 2 | Motor 5 |
-| 6 | 3 (0x13) | 1 | Motor 6 |
-| 7 | 3 (0x13) | 2 | (Unused) |
+---
 
-## Troubleshooting Quick Fixes
+## 📂 Important Files
 
-### "Cannot connect to Robot Pi"
-```bash
-# Check HaLow link
-ping 192.168.100.2
+| File | Description |
+|------|-------------|
+| `robot_pi/halow_bridge.py` | Robot Pi main (control SERVER) |
+| `base_pi/halow_bridge.py` | Base Pi main (control CLIENT, Video HTTP) |
+| `common/framing.py` | HMAC-SHA256 framing |
+| `common/constants.py` | Safety constants |
+| `tests/STRESS_TESTING.md` | Comprehensive stress testing guide |
+| `STRESS_TESTING_QUICKREF.md` | Stress testing quick reference |
 
-# Check firewall
-sudo ufw allow 5001:5003/tcp
+---
 
-# Restart bridge
-sudo systemctl restart serpent-base-bridge
-```
+## 🎯 Key Changes in v1.1
 
-### "No telemetry received"
-```bash
-# Check Robot Pi is running
-ssh pi@192.168.100.2 'systemctl status serpent-robot-bridge'
+1. **Control Channel Architecture** - Robot Pi is now SERVER (not client)
+2. **Video HTTP Endpoint** - MJPEG at `http://localhost:5004/video`
+3. **RTT Measurement** - Ping/pong heartbeat with timestamp tracking
+4. **Camera Health** - Exponential backoff recovery for failed cameras
+5. **E-STOP Debounce** - 300ms debounce for emergency_status events
+6. **Stress Testing** - 26+ tests across 5 phases
 
-# Check Robot Pi logs
-ssh pi@192.168.100.2 'journalctl -u serpent-robot-bridge -n 20'
-```
+---
 
-### "Video not streaming"
-```bash
-# Robot Pi: Check cameras
-v4l2-ctl --list-devices
+## 📞 Quick Links
 
-# Robot Pi: Test camera
-ffplay /dev/video0
+- **Main README:** [README.md](README.md)
+- **Stress Testing:** [tests/STRESS_TESTING.md](tests/STRESS_TESTING.md)
+- **Project Summary:** [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)
+- **Integration Guide:** [INTEGRATION.md](INTEGRATION.md)
+- **Safety Hardening:** [SAFETY_HARDENING.md](SAFETY_HARDENING.md)
+- **GitHub:** https://github.com/Steyn555247/PI-HALOW-BRIDGE
 
-# Base Pi: Check video port
-nc -zv 192.168.100.2 5002
-```
+---
 
-### "I2C devices not detected"
-```bash
-# Enable I2C
-sudo raspi-config
-# Interface Options -> I2C -> Enable
-
-# Reboot
-sudo reboot
-
-# Verify
-sudo i2cdetect -y 1
-```
-
-### "E-STOP keeps triggering"
-```bash
-# Check watchdog timeout (may be too short)
-# Edit .env: WATCHDOG_TIMEOUT=10.0
-
-# Check connection quality
-ping -c 100 192.168.100.2  # Look for packet loss
-
-# Check logs for disconnect events
-journalctl -u serpent-robot-bridge | grep -i disconnect
-```
-
-## Performance Tuning
-
-### Low Bandwidth (< 1 Mbps)
-```bash
-# Robot Pi .env
-CAMERA_WIDTH=320
-CAMERA_HEIGHT=240
-CAMERA_FPS=5
-CAMERA_QUALITY=40
-```
-
-### High Latency (> 100ms)
-- Reduce telemetry rate: `TELEMETRY_INTERVAL=0.2`
-- Check HaLow signal strength
-- Reduce video FPS: `CAMERA_FPS=5`
-
-### CPU Usage High
-- Reduce camera resolution: `320×240`
-- Reduce FPS: `CAMERA_FPS=5`
-- Increase telemetry interval: `0.2` seconds
-
-## Startup Sequence
-
-1. **Power on HaLow routers** → Wait for link establishment (30s)
-2. **Boot Robot Pi** → Auto-start bridge service
-3. **Boot Base Pi** → Auto-start bridge service
-4. **Start serpent_backend** → Socket.IO connection
-5. **Launch TrimUI app** → Connect to backend
-6. **Verify telemetry** → Check latency < 100ms
-7. **Test E-STOP** → Verify immediate response
-8. **Test camera** → Verify video streaming
-
-## Safety Checklist
-
-Before operation:
-- [ ] E-STOP button tested and working
-- [ ] Watchdog timeout configured (5s default)
-- [ ] Connection latency < 100ms
-- [ ] All motors respond to commands
-- [ ] Telemetry updates visible (10 Hz)
-- [ ] Video stream active
-- [ ] Battery voltage monitoring working
-- [ ] Failover tested (disconnect HaLow, verify E-STOP)
-
-## Log Levels
-
-Set via `LOG_LEVEL` environment variable:
-
-- **DEBUG**: All messages (very verbose)
-- **INFO**: Startup, connections, status (default)
-- **WARNING**: Disconnects, retries, timeouts
-- **ERROR**: Failures, exceptions
-
-## Useful Grep Patterns
-
-```bash
-# Find connection events
-journalctl -u serpent-robot-bridge | grep -i connect
-
-# Find errors
-journalctl -u serpent-robot-bridge | grep ERROR
-
-# Find E-STOP events
-journalctl -u serpent-robot-bridge | grep -i emergency
-
-# Find telemetry issues
-journalctl -u serpent-base-bridge | grep -i telemetry
-
-# Find video issues
-journalctl -u serpent-base-bridge | grep -i video
-```
-
-## File Locations
-
-```
-/home/pi/serpent/pi_halow_bridge/
-├── base_pi/
-│   ├── halow_bridge.py          # Main coordinator
-│   ├── config.py                # Configuration
-│   ├── .env                     # Your settings (gitignored)
-│   └── serpent-base-bridge.service
-└── robot_pi/
-    ├── halow_bridge.py          # Main coordinator
-    ├── config.py                # Configuration
-    ├── .env                     # Your settings (gitignored)
-    └── serpent-robot-bridge.service
-
-/etc/systemd/system/
-├── serpent-base-bridge.service
-└── serpent-robot-bridge.service
-
-/var/log/serpent/
-├── base_pi_bridge.log
-└── robot_pi_bridge.log
-```
-
-## Environment Variables Cheat Sheet
-
-### Must Configure
-- `ROBOT_PI_IP` / `BASE_PI_IP` - Peer IP address
-- `CAMERA_0`, `CAMERA_1`, `CAMERA_2` - Camera device paths (Robot Pi)
-
-### Recommended to Review
-- `WATCHDOG_TIMEOUT` - E-STOP timeout (default 5.0s)
-- `CAMERA_FPS` - Frame rate (default 10)
-- `CAMERA_QUALITY` - JPEG quality (default 60)
-- `LOG_LEVEL` - Logging verbosity (default INFO)
-
-### Advanced
-- `TELEMETRY_INTERVAL` - Send rate (default 0.1s)
-- `SENSOR_READ_INTERVAL` - Sensor read rate (default 0.1s)
-- `MOTORON_ADDR_*` - I2C addresses (default 0x10-0x13)
-
-## Getting Help
-
-1. Check component READMEs: `base_pi/README.md`, `robot_pi/README.md`
-2. Review integration guide: `INTEGRATION.md`
-3. Check logs: `journalctl -u serpent-*-bridge -f`
-4. Verify hardware: `i2cdetect`, `v4l2-ctl`
-5. Test connectivity: `ping`, `nc -zv`
-
-## Quick Test Script
-
-Save as `test_bridge.sh`:
-
-```bash
-#!/bin/bash
-
-echo "=== Testing Pi HaLow Bridge ==="
-
-echo "1. Testing HaLow link..."
-ping -c 3 192.168.100.2 || echo "FAIL: Cannot reach Robot Pi"
-
-echo "2. Testing control port..."
-nc -zv 192.168.100.2 5001 || echo "FAIL: Control port not open"
-
-echo "3. Checking Base Pi service..."
-systemctl is-active serpent-base-bridge || echo "FAIL: Base bridge not running"
-
-echo "4. Checking Robot Pi service..."
-ssh pi@192.168.100.2 'systemctl is-active serpent-robot-bridge' || echo "FAIL: Robot bridge not running"
-
-echo "5. Checking recent logs..."
-journalctl -u serpent-base-bridge -n 5 --no-pager
-
-echo "=== Test complete ==="
-```
-
-Run: `bash test_bridge.sh`
+**Version:** 1.1
+**Last Updated:** 2026-01-29
