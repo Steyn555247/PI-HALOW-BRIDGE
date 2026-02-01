@@ -53,17 +53,42 @@ git clone https://github.com/Steyn555247/PI-HALOW-BRIDGE.git
 cd PI-HALOW-BRIDGE
 
 # Robot Pi
-sudo ./scripts/pi_install.sh --robot
-sudo ./scripts/pi_enable_services.sh --robot
+sudo bash scripts/pi_install.sh --robot
+sudo bash scripts/pi_enable_services.sh --robot
 
 # Base Pi
-sudo ./scripts/pi_install.sh --base
-sudo ./scripts/pi_enable_services.sh --base
+sudo bash scripts/pi_install.sh --base
+sudo bash scripts/pi_enable_services.sh --base
 
 # Verify
 sudo systemctl status serpent-robot-bridge
 sudo systemctl status serpent-base-bridge
 ```
+
+### Install from Any Folder
+
+The installation scripts work from **any directory**. No need to use `/home/pi/serpent/` or create symlinks.
+
+```bash
+# Example: Clone to Desktop
+cd ~/Desktop
+git clone https://github.com/Steyn555247/PI-HALOW-BRIDGE.git
+cd PI-HALOW-BRIDGE
+
+# Install (creates venv in project folder)
+sudo bash scripts/pi_install.sh --base    # or --robot
+
+# Enable service (automatically substitutes correct paths)
+sudo bash scripts/pi_enable_services.sh --base    # or --robot
+
+# Done! Service runs from your chosen directory
+sudo systemctl status serpent-base-bridge
+```
+
+**How it works:**
+- `pi_install.sh` creates a Python virtual environment at `<project>/venv/`
+- `pi_enable_services.sh` uses `sed` to substitute the template path with your actual project location
+- The systemd service uses the venv's Python interpreter, avoiding "externally managed" Python errors on Raspberry Pi OS
 
 ---
 

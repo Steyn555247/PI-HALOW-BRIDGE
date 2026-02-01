@@ -97,9 +97,11 @@ Environment="SERPENT_PSK_HEX=${PSK}"
 EOF
 sudo chmod 600 "$DROPIN_DIR/psk.conf"
 
-# Copy service file
+# Copy service file, substituting ALL occurrences of the template path
+# This handles: WorkingDirectory, ExecStart (venv python + script path)
 log_info "Installing service file..."
-sudo cp "$SERVICE_PATH" /etc/systemd/system/
+log_info "Substituting /home/pi/serpent/pi_halow_bridge -> $PROJECT_ROOT"
+sed "s|/home/pi/serpent/pi_halow_bridge|$PROJECT_ROOT|g" "$SERVICE_PATH" | sudo tee /etc/systemd/system/"$(basename "$SERVICE_PATH")" > /dev/null
 
 # Reload systemd
 log_info "Reloading systemd..."

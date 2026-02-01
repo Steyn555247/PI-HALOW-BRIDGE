@@ -105,18 +105,22 @@ if [ "$PI_TYPE" == "robot" ]; then
     fi
 fi
 
-# Create virtual environment
+# Create virtual environment (required for Raspberry Pi OS "externally managed" Python)
 VENV_DIR="$PROJECT_ROOT/venv"
+log_info "Virtual environment directory: $VENV_DIR"
+
 if [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment..."
     python3 -m venv "$VENV_DIR"
+else
+    log_info "Virtual environment already exists, reusing..."
 fi
 
 # Activate venv
 source "$VENV_DIR/bin/activate"
 
-# Install Python dependencies
-log_info "Installing Python dependencies..."
+# Install Python dependencies into the venv
+log_info "Installing Python dependencies into venv..."
 pip install --upgrade pip
 
 if [ "$PI_TYPE" == "robot" ]; then
@@ -124,6 +128,8 @@ if [ "$PI_TYPE" == "robot" ]; then
 else
     pip install -r "$PROJECT_ROOT/base_pi/requirements.txt"
 fi
+
+log_info "Python packages installed successfully into venv."
 
 # Create log directory
 LOG_DIR="/var/log/serpent"
@@ -194,8 +200,11 @@ echo "============================================================"
 echo "Installation Complete!"
 echo "============================================================"
 echo ""
+echo "Virtual environment ready at: $VENV_DIR"
+echo "Python interpreter: $VENV_DIR/bin/python3"
+echo ""
 echo "Next steps:"
 echo "  1. Ensure PSK is identical on both Pis"
-echo "  2. Run: ./scripts/pi_enable_services.sh"
+echo "  2. Run: sudo bash scripts/pi_enable_services.sh --${PI_TYPE}"
 echo "  3. Check status: sudo systemctl status serpent-${PI_TYPE}-bridge"
 echo ""
