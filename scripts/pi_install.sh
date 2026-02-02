@@ -95,6 +95,11 @@ sudo apt-get install -y \
 # Robot Pi deps (e.g. some Adafruit packages) need Python >=3.7,<3.11 and others >3.9 → use 3.10
 PYTHON_FOR_VENV="python3"
 if [ "$PI_TYPE" == "robot" ]; then
+    # So sudo finds Python 3.12 from "make altinstall" (in /usr/local/bin)
+    export PATH="/usr/local/bin:$PATH"
+    if [ -x "/usr/local/bin/python3.12" ]; then
+        log_info "Found Python 3.12 at /usr/local/bin/python3.12"
+    fi
     log_info "Installing Robot Pi specific dependencies..."
     sudo apt-get install -y \
         python3-smbus \
@@ -177,7 +182,9 @@ log_info "Installing Python dependencies into venv..."
 "$VENV_PIP" install --upgrade pip
 
 if [ "$PI_TYPE" == "robot" ]; then
-    "$VENV_PIP" install -r "$PROJECT_ROOT/robot_pi/requirements.txt"
+    # Force motoron from source (no wheel for aarch64 + Python 3.12 on piwheels/PyPI)
+    log_info "Installing Robot Pi dependencies (motoron from source)..."
+    "$VENV_PIP" install --no-binary motoron -r "$PROJECT_ROOT/robot_pi/requirements.txt"
 else
     "$VENV_PIP" install -r "$PROJECT_ROOT/base_pi/requirements.txt"
 fi

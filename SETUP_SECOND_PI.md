@@ -283,7 +283,8 @@ sudo journalctl -u serpent-robot-bridge -f
 | "not a git repository" | Run all commands from inside the project folder (e.g. `~/pi_halow_bridge` or `~/PI-HALOW-BRIDGE`). |
 | Service fails (status 217/USER) | Ensure the service runs as the same user you use to log in (e.g. `serpentbase`). The install script and service templates use `serpentbase` by default. |
 | python3 no such file | Re-run `sudo bash scripts/pi_enable_services.sh --robot` from the project directory so paths and venv are correct. |
-| **Python version conflict** (e.g. "requires python >= 3.7, <3.11" or "requires >3.9") | Robot Pi needs Python 3.10. See [Robot Pi: Python 3.10](#robot-pi-python-310) below. |
+| **Python version conflict** (e.g. "requires python >= 3.7, <3.11" or "requires >3.9") | Robot Pi needs Python 3.10–3.12. See [Robot Pi: Python 3.10–3.12](#robot-pi-python-310312-motoron-does-not-support-313) below. |
+| **motoron "from versions: none"** (venv is 3.12 but pip finds no motoron) | Install script now forces motoron from source. Pull latest and re-run; or run: `./venv/bin/pip install --no-binary motoron motoron>=1.1.0` then `./venv/bin/pip install -r robot_pi/requirements.txt`. |
 | PSK mismatch | Copy the exact PSK from the Base Pi again; both Pis must have the same 64-char hex key in `/etc/serpent/psk`. |
 | No connection between Pis | Check HaLow/wifi IPs, firewall, and that both services are running. |
 
