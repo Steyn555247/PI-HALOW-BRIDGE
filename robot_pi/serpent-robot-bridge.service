@@ -10,7 +10,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=pi
+User=serpentbase
 # Groups required for hardware access (I2C, GPIO, video)
 SupplementaryGroups=i2c gpio video
 
@@ -39,10 +39,10 @@ LimitNOFILE=1024
 MemoryMax=256M
 CPUQuota=80%
 
-# Security hardening
+# Security hardening (ProtectHome=read-only allows reading project/venv from /home)
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectHome=yes
+ProtectHome=read-only
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

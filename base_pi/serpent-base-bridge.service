@@ -9,7 +9,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=pi
+User=serpentbase
 WorkingDirectory=/home/pi/serpent/pi_halow_bridge/base_pi
 RuntimeDirectory=serpent
 
@@ -36,10 +36,11 @@ MemoryMax=256M
 CPUQuota=80%
 
 # Security hardening (stricter than robot - no hardware access needed)
+# ProtectHome=read-only allows reading project/venv from /home (required when project is in /home/pi)
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ProtectHome=yes
+ProtectHome=read-only
 ProtectSystem=strict
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

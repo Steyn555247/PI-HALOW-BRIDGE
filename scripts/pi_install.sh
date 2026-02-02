@@ -116,17 +116,24 @@ else
     log_info "Virtual environment already exists, reusing..."
 fi
 
-# Activate venv
-source "$VENV_DIR/bin/activate"
+# Use venv's pip directly (avoids "externally managed" - never touches system Python)
+VENV_PIP="$VENV_DIR/bin/pip"
+VENV_PYTHON="$VENV_DIR/bin/python3"
 
-# Install Python dependencies into the venv
+# Install Python dependencies into the venv (explicit path - no activation needed)
 log_info "Installing Python dependencies into venv..."
-pip install --upgrade pip
+"$VENV_PIP" install --upgrade pip
 
 if [ "$PI_TYPE" == "robot" ]; then
-    pip install -r "$PROJECT_ROOT/robot_pi/requirements.txt"
+    "$VENV_PIP" install -r "$PROJECT_ROOT/robot_pi/requirements.txt"
 else
-    pip install -r "$PROJECT_ROOT/base_pi/requirements.txt"
+    "$VENV_PIP" install -r "$PROJECT_ROOT/base_pi/requirements.txt"
+fi
+
+# Ensure venv is owned by pi user (service runs as pi, not root)
+if [ -n "$SUDO_USER" ]; then
+    log_info "Setting venv ownership to $SUDO_USER..."
+    sudo chown -R "$SUDO_USER:$SUDO_USER" "$VENV_DIR"
 fi
 
 log_info "Python packages installed successfully into venv."
@@ -188,8 +195,9 @@ if [ "$PI_TYPE" == "robot" ]; then
     fi
 fi
 
-# Check Python modules
-python3 -c "import cv2; print(f'OpenCV: {cv2.__version__}')" || log_warn "OpenCV not working"
+# Check Python modules (use venv's python)
+"$VENV_PYTHON" -c "import cv2; print(f'OpenCV: {cv2.__version__}')" || log_warn "OpenCV not working"
+"$VENV_PYTHON" -c "import socketio; print('socketio: OK')" || log_warn "socketio not working"
 
 if [ "$PI_TYPE" == "robot" ]; then
     python3 -c "import RPi.GPIO; print('RPi.GPIO: OK')" || log_warn "RPi.GPIO not working"
