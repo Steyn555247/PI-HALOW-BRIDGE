@@ -287,23 +287,57 @@ sudo journalctl -u serpent-robot-bridge -f
 | PSK mismatch | Copy the exact PSK from the Base Pi again; both Pis must have the same 64-char hex key in `/etc/serpent/psk`. |
 | No connection between Pis | Check HaLow/wifi IPs, firewall, and that both services are running. |
 
-### Robot Pi: Python 3.10
+### Robot Pi: Python 3.10–3.12 (motoron does not support 3.13)
 
-Some Robot Pi dependencies need Python **>= 3.7 and < 3.11**, others **> 3.9**, so the installer uses **Python 3.10** when available. If the install got stuck on a version error:
+Robot Pi needs **Python 3.10, 3.11, or 3.12**. The **motoron** package (and some Adafruit deps) do not support Python 3.13 yet. If you see:
 
-1. **Install Python 3.10** (if not already):
+- `ERROR: Could not find a version that satisfies the requirement motoron>=1.1.0`
+- `Requires-Python >=3.7,<3.11` or `>=3.9,<3.13` and your system has **Python 3.13** (e.g. Raspberry Pi OS Trixie)
+
+do one of the following.
+
+#### Option A: Use Raspberry Pi OS Bookworm (recommended)
+
+**Bookworm** uses Python 3.11, which works with motoron. Reflash the SD card with **Raspberry Pi OS (64-bit) Bookworm** (not Trixie), then run the installer again. No need to install an extra Python.
+
+#### Option B: Robot Pi on Trixie – install Python 3.12
+
+If you want to keep **Raspberry Pi OS Trixie** (Python 3.13), install Python 3.12 and use it for the venv:
+
+1. **Install build deps and Python 3.12:**
    ```bash
    sudo apt update
-   sudo apt install -y python3.10 python3.10-venv python3.10-dev
+   sudo apt install -y build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
+     libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
+   cd /tmp
+   wget https://www.python.org/ftp/python/3.12.7/Python-3.12.7.tgz
+   tar -xf Python-3.12.7.tgz
+   cd Python-3.12.7
+   ./configure --enable-optimizations --prefix=/usr/local
+   make -j$(nproc)
+   sudo make altinstall
    ```
-   If your Raspberry Pi OS doesn’t offer `python3.10`, use the latest install script (it will try to install 3.10), or use Raspberry Pi OS **Bullseye** (default Python 3.9).
+   Then check: `python3.12 --version` (should show 3.12.x).
 
-2. **Remove the existing venv and re-run the installer** (so the venv is created with 3.10):
+2. **Remove the old venv and re-run the installer** (it will use `python3.12`):
    ```bash
    cd ~/PI-HALOW-BRIDGE
    rm -rf venv
    sudo bash scripts/pi_install.sh --robot
+   sudo bash scripts/pi_enable_services.sh --robot
    ```
-   Then enable the service again: `sudo bash scripts/pi_enable_services.sh --robot`.
+
+#### Option C: Python 3.10 / 3.11 from apt (Bookworm or older)
+
+On **Bookworm** or older, Python 3.10 or 3.11 may be in the repos:
+
+```bash
+sudo apt update
+sudo apt install -y python3.10 python3.10-venv python3.10-dev
+# or: python3.11 python3.11-venv python3.11-dev
+cd ~/PI-HALOW-BRIDGE
+rm -rf venv
+sudo bash scripts/pi_install.sh --robot
+```
 
 For more detail, see the main [README.md](README.md) and [QUICK_REFERENCE.md](QUICK_REFERENCE.md).

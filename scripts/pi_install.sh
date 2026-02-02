@@ -106,18 +106,36 @@ if [ "$PI_TYPE" == "robot" ]; then
         sudo raspi-config nonint do_i2c 0
     fi
 
-    # Prefer Python 3.10 for Robot Pi (avoids >=3.7,<3.11 vs >3.9 conflicts on 3.11 systems)
-    if command -v python3.10 &>/dev/null; then
-        PYTHON_FOR_VENV="python3.10"
-        log_info "Using Python 3.10 for venv (Robot Pi compatibility)"
-    else
-        log_info "Trying to install Python 3.10 for Robot Pi (required by some packages)..."
-        if sudo apt-get install -y python3.10 python3.10-venv python3.10-dev 2>/dev/null; then
-            PYTHON_FOR_VENV="python3.10"
-            log_info "Using Python 3.10 for venv"
-        else
-            log_warn "Python 3.10 not available; using default python3. If pip install fails (version conflict), install Python 3.10 or use Raspberry Pi OS Bullseye."
+    # Robot Pi needs Python 3.10–3.12 (motoron and some Adafruit packages don't support 3.13 yet)
+    for py in python3.12 python3.11 python3.10; do
+        if command -v "$py" &>/dev/null; then
+            PYTHON_FOR_VENV="$py"
+            log_info "Using $py for venv (Robot Pi compatibility)"
+            break
         fi
+    done
+    if [ "$PYTHON_FOR_VENV" = "python3" ]; then
+        log_info "No Python 3.10–3.12 found; trying apt..."
+        for pkg in python3.12 python3.11 python3.10; do
+            if sudo apt-get install -y "${pkg}" "${pkg}-venv" "${pkg}-dev" 2>/dev/null; then
+                PYTHON_FOR_VENV="$pkg"
+                log_info "Using $pkg for venv"
+                break
+            fi
+        done
+    fi
+    # Check if default python is 3.13+ (incompatible with motoron)
+    DEFAULT_PY_VER=$("python3" -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>/dev/null || echo "0 0")
+    if [ "$PYTHON_FOR_VENV" = "python3" ] && [ "$DEFAULT_PY_VER" = "3 13" ] || [ "$DEFAULT_PY_VER" = "3 14" ]; then
+        log_error "Robot Pi requires Python 3.10, 3.11, or 3.12 (motoron does not support 3.13+)."
+        log_error "Your system has Python 3.13. Options:"
+        log_error "  1. Use Raspberry Pi OS Bookworm (Python 3.11) - recommended"
+        log_error "  2. Install Python 3.12: see SETUP_SECOND_PI.md section 'Robot Pi on Trixie'"
+        if [ -d "$PROJECT_ROOT/venv" ]; then
+            log_info "Removing existing venv so you can retry after installing a compatible Python..."
+            rm -rf "$PROJECT_ROOT/venv"
+        fi
+        exit 1
     fi
 fi
 
@@ -129,7 +147,19 @@ if [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment with $PYTHON_FOR_VENV..."
     $PYTHON_FOR_VENV -m venv "$VENV_DIR"
 else
-    log_info "Virtual environment already exists, reusing..."
+    # If Robot Pi and venv was created with 3.13, we must recreate with compatible Python
+    if [ "$PI_TYPE" = "robot" ] && [ -f "$VENV_DIR/bin/python3" ]; then
+        VENV_VER=$("$VENV_DIR/bin/python3" -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2>/dev/null || echo "0 0")
+        if [ "$VENV_VER" = "3 13" ] || [ "$VENV_VER" = "3 14" ]; then
+            log_warn "Existing venv uses Python 3.13 (incompatible with motoron). Recreating with $PYTHON_FOR_VENV..."
+            rm -rf "$VENV_DIR"
+            $PYTHON_FOR_VENV -m venv "$VENV_DIR"
+        else
+            log_info "Virtual environment already exists, reusing..."
+        fi
+    else
+        log_info "Virtual environment already exists, reusing..."
+    fi
 fi
 
 # Use venv's pip directly (avoids "externally managed" - never touches system Python)
