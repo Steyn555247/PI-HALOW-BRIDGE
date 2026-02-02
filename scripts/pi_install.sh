@@ -91,7 +91,9 @@ sudo apt-get install -y \
     python3-opencv \
     i2c-tools
 
-# Robot-specific dependencies
+# Robot-specific dependencies and Python version
+# Robot Pi deps (e.g. some Adafruit packages) need Python >=3.7,<3.11 and others >3.9 → use 3.10
+PYTHON_FOR_VENV="python3"
 if [ "$PI_TYPE" == "robot" ]; then
     log_info "Installing Robot Pi specific dependencies..."
     sudo apt-get install -y \
@@ -103,6 +105,20 @@ if [ "$PI_TYPE" == "robot" ]; then
         log_info "Enabling I2C..."
         sudo raspi-config nonint do_i2c 0
     fi
+
+    # Prefer Python 3.10 for Robot Pi (avoids >=3.7,<3.11 vs >3.9 conflicts on 3.11 systems)
+    if command -v python3.10 &>/dev/null; then
+        PYTHON_FOR_VENV="python3.10"
+        log_info "Using Python 3.10 for venv (Robot Pi compatibility)"
+    else
+        log_info "Trying to install Python 3.10 for Robot Pi (required by some packages)..."
+        if sudo apt-get install -y python3.10 python3.10-venv python3.10-dev 2>/dev/null; then
+            PYTHON_FOR_VENV="python3.10"
+            log_info "Using Python 3.10 for venv"
+        else
+            log_warn "Python 3.10 not available; using default python3. If pip install fails (version conflict), install Python 3.10 or use Raspberry Pi OS Bullseye."
+        fi
+    fi
 fi
 
 # Create virtual environment (required for Raspberry Pi OS "externally managed" Python)
@@ -110,8 +126,8 @@ VENV_DIR="$PROJECT_ROOT/venv"
 log_info "Virtual environment directory: $VENV_DIR"
 
 if [ ! -d "$VENV_DIR" ]; then
-    log_info "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+    log_info "Creating virtual environment with $PYTHON_FOR_VENV..."
+    $PYTHON_FOR_VENV -m venv "$VENV_DIR"
 else
     log_info "Virtual environment already exists, reusing..."
 fi
