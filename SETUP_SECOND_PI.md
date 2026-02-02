@@ -326,6 +326,10 @@ If you want to keep **Raspberry Pi OS Trixie** (Python 3.13), install Python 3.1
    sudo bash scripts/pi_install.sh --robot
    sudo bash scripts/pi_enable_services.sh --robot
    ```
+   If the installer still says "No Python 3.10–3.12 found", `sudo` may not see `/usr/local/bin`. Run with PATH set:
+   ```bash
+   sudo env PATH=/usr/local/bin:$PATH bash scripts/pi_install.sh --robot
+   ```
 
 #### Option C: Python 3.10 / 3.11 from apt (Bookworm or older)
 

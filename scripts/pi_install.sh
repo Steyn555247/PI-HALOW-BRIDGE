@@ -107,10 +107,16 @@ if [ "$PI_TYPE" == "robot" ]; then
     fi
 
     # Robot Pi needs Python 3.10–3.12 (motoron and some Adafruit packages don't support 3.13 yet)
+    # Check both PATH and /usr/local/bin (where "make altinstall" puts Python from source)
     for py in python3.12 python3.11 python3.10; do
         if command -v "$py" &>/dev/null; then
             PYTHON_FOR_VENV="$py"
             log_info "Using $py for venv (Robot Pi compatibility)"
+            break
+        fi
+        if [ -x "/usr/local/bin/$py" ]; then
+            PYTHON_FOR_VENV="/usr/local/bin/$py"
+            log_info "Using $PYTHON_FOR_VENV for venv (Robot Pi compatibility)"
             break
         fi
     done
