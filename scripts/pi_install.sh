@@ -83,6 +83,7 @@ echo ""
 log_info "Installing system dependencies..."
 sudo apt-get update
 sudo apt-get install -y \
+    git \
     python3 \
     python3-pip \
     python3-venv \
@@ -182,9 +183,8 @@ log_info "Installing Python dependencies into venv..."
 "$VENV_PIP" install --upgrade pip
 
 if [ "$PI_TYPE" == "robot" ]; then
-    # Force motoron from source (no wheel for aarch64 + Python 3.12 on piwheels/PyPI)
-    log_info "Installing Robot Pi dependencies (motoron from source)..."
-    "$VENV_PIP" install --no-binary motoron -r "$PROJECT_ROOT/robot_pi/requirements.txt"
+    log_info "Installing Robot Pi dependencies..."
+    "$VENV_PIP" install -r "$PROJECT_ROOT/robot_pi/requirements.txt"
 else
     "$VENV_PIP" install -r "$PROJECT_ROOT/base_pi/requirements.txt"
 fi
