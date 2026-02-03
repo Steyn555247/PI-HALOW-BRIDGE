@@ -679,6 +679,58 @@ sudo journalctl -u serpent-base-bridge | grep telemetry
 
 ---
 
+## Backend Video Integration (Controller App)
+
+When using the Serpent controller app (Flutter or web), the video path is:
+
+```
+Robot Pi → Base Pi (hub :5004) → Backend (:5000) → Controller App
+```
+
+The controller fetches video from the backend's `/video_feed/0` route. To serve robot video from the hub:
+
+### Configuration
+
+Set the `BRIDGE_VIDEO_URL` environment variable on the machine running the backend:
+
+```bash
+# Backend on same host as Base Pi:
+export BRIDGE_VIDEO_URL="http://127.0.0.1:5004/video"
+
+# Backend on different machine:
+export BRIDGE_VIDEO_URL="http://192.168.100.1:5004/video"
+```
+
+Then start the backend:
+
+```bash
+python serpent_backend_trimui_s.py
+```
+
+### Verification
+
+1. Check hub health:
+   ```bash
+   curl http://127.0.0.1:5004/health
+   # Should show: "video_connected": true
+   ```
+
+2. Check backend status:
+   ```bash
+   curl http://localhost:5000/api/status
+   # Should show: "bridge_video_available": true
+   ```
+
+3. Open controller app → main video feed should show robot video.
+
+### No Regression
+
+If `BRIDGE_VIDEO_URL` is not set, the backend uses local cameras (existing behavior). Deployments without the bridge continue to work unchanged.
+
+For detailed setup, see **BACKEND_VIDEO_SETUP.md** in the parent directory.
+
+---
+
 ## Conclusion
 
 The Pi HaLow Bridge v1.1 provides multiple integration methods:

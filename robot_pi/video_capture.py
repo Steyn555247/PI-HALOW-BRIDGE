@@ -90,20 +90,26 @@ class VideoCapture:
         try:
             device = self.camera_devices[camera_id]
 
-            # Use V4L2 on Linux, default backend on Windows/Mac
-            if IS_LINUX:
-                cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
-            else:
-                # On Windows, device paths like '/dev/video0' won't work
-                # Try using camera index instead
+            # Extract device index from path (e.g., '/dev/video0' -> 0, '/dev/video2' -> 2)
+            # V4L2 backend requires integer indices, not device path strings
+            if '/dev/video' in str(device):
                 try:
-                    device_idx = int(device.replace('/dev/video', '')) if '/dev/video' in str(device) else camera_id
+                    device_idx = int(str(device).replace('/dev/video', ''))
                 except ValueError:
                     device_idx = camera_id
+                    logger.warning(f"Could not parse device index from {device}, using camera_id={camera_id}")
+            else:
+                device_idx = int(device) if str(device).isdigit() else camera_id
+
+            # Use V4L2 on Linux with integer index, default backend on Windows/Mac
+            if IS_LINUX:
+                logger.debug(f"Opening camera {camera_id} as V4L2 device index {device_idx}")
+                cap = cv2.VideoCapture(device_idx, cv2.CAP_V4L2)
+            else:
                 cap = cv2.VideoCapture(device_idx)
 
             if not cap.isOpened():
-                logger.error(f"Failed to open camera {camera_id} at {device}")
+                logger.error(f"Failed to open camera {camera_id} (config: {device}, index: {device_idx})")
                 return None
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
@@ -114,7 +120,7 @@ class VideoCapture:
             if IS_LINUX:
                 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
-            logger.info(f"Camera {camera_id} initialized at {device}")
+            logger.info(f"Camera {camera_id} initialized (config: {device}, index: {device_idx})")
             return cap
 
         except Exception as e:
