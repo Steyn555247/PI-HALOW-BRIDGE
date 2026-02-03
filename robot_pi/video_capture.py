@@ -19,9 +19,11 @@ import time
 import socket
 import platform
 import numpy as np
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import os
 import sys
+import glob
+import subprocess
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -81,6 +83,56 @@ class VideoCapture:
 
         logger.info(f"VideoCapture initialized: {len(camera_devices)} cameras, {width}x{height}@{fps}fps, sim_mode={self.sim_mode}")
 
+    @staticmethod
+    def _detect_available_cameras() -> List[str]:
+        """
+        Detect available camera devices on the system.
+        
+        Returns:
+            List of available device paths (e.g., ['/dev/video0', '/dev/video2'])
+        """
+        available = []
+        
+        if IS_LINUX:
+            # On Linux, scan for /dev/video* devices
+            try:
+                video_devices = sorted(glob.glob('/dev/video*'))
+                logger.info(f"Detected {len(video_devices)} /dev/video* devices: {video_devices}")
+                
+                # Filter to actual video devices (not device control nodes)
+                for device in video_devices:
+                    # Skip ALSA and other control devices
+                    if 'alsa' in device or 'preview' in device:
+                        continue
+                    # Check if device is readable
+                    if os.access(device, os.R_OK):
+                        available.append(device)
+                        logger.debug(f"  ✓ {device} is accessible")
+                    else:
+                        logger.warning(f"  ✗ {device} exists but not readable (permission issue?)")
+                        
+            except Exception as e:
+                logger.warning(f"Error scanning for video devices: {e}")
+        else:
+            # On Windows/Mac, try common indices 0-9
+            logger.info("Detecting cameras by index (Windows/Mac)...")
+            for idx in range(10):
+                try:
+                    cap = cv2.VideoCapture(idx)
+                    if cap.isOpened():
+                        available.append(str(idx))
+                        cap.release()
+                        logger.debug(f"  ✓ Camera index {idx} is available")
+                    cap.release()
+                except:
+                    pass
+        
+        if available:
+            logger.info(f"✓ Available cameras: {available}")
+        else:
+            logger.warning("✗ No cameras detected on this system")
+        return available
+
     def _init_camera(self, camera_id: int) -> Optional[cv2.VideoCapture]:
         """Initialize a camera with platform-appropriate backend"""
         if self.sim_mode:
@@ -110,6 +162,10 @@ class VideoCapture:
 
             if not cap.isOpened():
                 logger.error(f"Failed to open camera {camera_id} (config: {device}, index: {device_idx})")
+                logger.warning(f"Camera {camera_id} not available. Detecting available cameras...")
+                available = self._detect_available_cameras()
+                if available:
+                    logger.warning(f"Available cameras: {available}. Update CAMERA_{camera_id} or environment variables.")
                 return None
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
@@ -120,11 +176,11 @@ class VideoCapture:
             if IS_LINUX:
                 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
-            logger.info(f"Camera {camera_id} initialized (config: {device}, index: {device_idx})")
+            logger.info(f"✓ Camera {camera_id} initialized (config: {device}, index: {device_idx})")
             return cap
 
         except Exception as e:
-            logger.error(f"Error initializing camera {camera_id}: {e}")
+            logger.error(f"Error initializing camera {camera_id}: {e}", exc_info=True)
             return None
 
     def _generate_sim_frame(self) -> np.ndarray:
@@ -233,16 +289,29 @@ class VideoCapture:
         self.running = True
 
         if self.sim_mode:
-            logger.info("SIM_MODE: Using synthetic video frames")
+            logger.info("🎬 SIM_MODE: Using synthetic video frames")
         else:
+            # Detect available cameras first
+            logger.info("Scanning for available cameras...")
+            available = self._detect_available_cameras()
+            
+            if available:
+                logger.info(f"Attempting to initialize {len(self.camera_devices)} configured cameras...")
+            else:
+                logger.warning("⚠️  No cameras detected! Falling back to synthetic frames.")
+            
             # Initialize cameras
+            initialized_count = 0
             for i in range(len(self.camera_devices)):
                 camera = self._init_camera(i)
                 if camera:
                     self.cameras[i] = camera
+                    initialized_count += 1
 
-            if not self.cameras:
-                logger.warning("No cameras initialized - video capture will use sim frames")
+            if initialized_count > 0:
+                logger.info(f"✓ Successfully initialized {initialized_count}/{len(self.camera_devices)} cameras")
+            else:
+                logger.warning(f"✗ Failed to initialize any cameras - video will use synthetic frames")
 
         self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.capture_thread.start()
