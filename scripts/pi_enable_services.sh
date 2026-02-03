@@ -124,12 +124,33 @@ log_info "Service will run as user: $SERVICE_USER"
 DROPIN_DIR="/etc/systemd/system/${SERVICE_NAME}.service.d"
 sudo mkdir -p "$DROPIN_DIR"
 
-log_info "Creating drop-in configuration (PSK + User)..."
-cat << EOF | sudo tee "$DROPIN_DIR/psk.conf" > /dev/null
-[Service]
-User=${SERVICE_USER}
-Environment="SERPENT_PSK_HEX=${PSK}"
-EOF
+# Robot Pi: include BASE_PI_IP from persistent file if it exists (so re-running this script doesn't revert it)
+# Base Pi: include ROBOT_PI_IP from persistent file if it exists
+EXTRA_ENV_LINES=""
+if [ "$PI_TYPE" == "robot" ] && [ -f /etc/serpent/base_pi_ip ]; then
+    BASE_PI_IP_VALUE=$(cat /etc/serpent/base_pi_ip | tr -d '\n\r')
+    if [ -n "$BASE_PI_IP_VALUE" ]; then
+        EXTRA_ENV_LINES="${EXTRA_ENV_LINES}Environment=\"BASE_PI_IP=${BASE_PI_IP_VALUE}\"
+"
+        log_info "Using BASE_PI_IP from /etc/serpent/base_pi_ip: $BASE_PI_IP_VALUE"
+    fi
+fi
+if [ "$PI_TYPE" == "base" ] && [ -f /etc/serpent/robot_pi_ip ]; then
+    ROBOT_PI_IP_VALUE=$(cat /etc/serpent/robot_pi_ip | tr -d '\n\r')
+    if [ -n "$ROBOT_PI_IP_VALUE" ]; then
+        EXTRA_ENV_LINES="${EXTRA_ENV_LINES}Environment=\"ROBOT_PI_IP=${ROBOT_PI_IP_VALUE}\"
+"
+        log_info "Using ROBOT_PI_IP from /etc/serpent/robot_pi_ip: $ROBOT_PI_IP_VALUE"
+    fi
+fi
+
+log_info "Creating drop-in configuration (PSK + User + IP)..."
+{
+    echo "[Service]"
+    echo "User=${SERVICE_USER}"
+    echo "Environment=\"SERPENT_PSK_HEX=${PSK}\""
+    [ -n "$EXTRA_ENV_LINES" ] && echo -n "$EXTRA_ENV_LINES"
+} | sudo tee "$DROPIN_DIR/psk.conf" > /dev/null
 sudo chmod 600 "$DROPIN_DIR/psk.conf"
 
 # Copy service file, substituting ALL occurrences of the template path

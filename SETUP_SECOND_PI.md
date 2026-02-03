@@ -194,6 +194,10 @@ This will:
 
 ### 4.4 Check status
 
+**Service names (use these exactly – not "bridge" alone):**
+- **Robot Pi:** `serpent-robot-bridge`
+- **Base Pi:** `serpent-base-bridge`
+
 ```bash
 sudo systemctl status serpent-robot-bridge
 ```
@@ -231,7 +235,95 @@ ping 192.168.100.2
 ping 192.168.100.1
 ```
 
-If you use different IPs, set them via systemd or environment (e.g. `BASE_PI_IP` / `ROBOT_PI_IP`) so the bridge uses the correct addresses.
+### 5.1 Persistent IP Configuration
+
+If you use different IPs than the defaults, you must configure them so they **persist** across reinstalls and re-running the enable script.
+
+#### Robot Pi – Set Base Pi's IP
+
+The Robot Pi needs to know the Base Pi's IP address (`BASE_PI_IP`).
+
+**Option A: Quick script (recommended)**
+
+```bash
+sudo bash scripts/set_bridge_ip.sh --robot <BASE_PI_IP>
+# Example:
+sudo bash scripts/set_bridge_ip.sh --robot 10.103.198.124
+```
+
+This writes the IP to `/etc/serpent/base_pi_ip`, updates the service drop-in, and restarts the bridge.
+
+**Option B: Manual setup (one-time, before enabling service)**
+
+```bash
+# On Robot Pi: store Base Pi IP
+echo "<BASE_PI_IP>" | sudo tee /etc/serpent/base_pi_ip
+sudo chmod 644 /etc/serpent/base_pi_ip
+
+# Then enable/re-enable the service (reads from the file)
+sudo bash scripts/pi_enable_services.sh --robot
+```
+
+Replace `<BASE_PI_IP>` with your Base Pi's real IP (from `hostname -I` on the Base Pi).
+
+#### Base Pi – Set Robot Pi's IP
+
+The Base Pi needs to know the Robot Pi's IP address (`ROBOT_PI_IP`).
+
+**Option A: Quick script (recommended)**
+
+```bash
+sudo bash scripts/set_bridge_ip.sh --base <ROBOT_PI_IP>
+# Example:
+sudo bash scripts/set_bridge_ip.sh --base 192.168.100.2
+```
+
+This writes the IP to `/etc/serpent/robot_pi_ip`, updates the service drop-in, and restarts the bridge.
+
+**Option B: Manual setup (one-time, before enabling service)**
+
+```bash
+# On Base Pi: store Robot Pi IP
+echo "<ROBOT_PI_IP>" | sudo tee /etc/serpent/robot_pi_ip
+sudo chmod 644 /etc/serpent/robot_pi_ip
+
+# Then enable/re-enable the service (reads from the file)
+sudo bash scripts/pi_enable_services.sh --base
+```
+
+Replace `<ROBOT_PI_IP>` with your Robot Pi's real IP (from `hostname -I` on the Robot Pi).
+
+### 5.2 Changing IP Later
+
+To change the other Pi's IP at any time without re-running the full install:
+
+```bash
+# On Robot Pi (to change Base Pi's IP):
+sudo bash scripts/set_bridge_ip.sh --robot <NEW_BASE_PI_IP>
+
+# On Base Pi (to change Robot Pi's IP):
+sudo bash scripts/set_bridge_ip.sh --base <NEW_ROBOT_PI_IP>
+
+# Or run without arguments to be prompted:
+sudo bash scripts/set_bridge_ip.sh
+```
+
+The script automatically:
+1. Writes the IP to the persistent file (`/etc/serpent/base_pi_ip` or `/etc/serpent/robot_pi_ip`)
+2. Updates the systemd drop-in (`psk.conf`)
+3. Reloads systemd and restarts the bridge service
+
+### 5.3 Verifying IP Configuration
+
+```bash
+# Check the persistent IP file:
+cat /etc/serpent/base_pi_ip   # On Robot Pi
+cat /etc/serpent/robot_pi_ip  # On Base Pi
+
+# Check the service environment:
+sudo systemctl show serpent-robot-bridge --property=Environment  # On Robot Pi
+sudo systemctl show serpent-base-bridge --property=Environment   # On Base Pi
+```
 
 ---
 
