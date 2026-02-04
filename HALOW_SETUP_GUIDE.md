@@ -15,19 +15,21 @@ This guide walks you through setting up the ALFA HaLow-R devices to create a wir
 - Topology: Bridge mode (transparent Ethernet bridge)
 - Power: PoE or USB-C
 
+**Note:** This guide uses the 192.168.1.x subnet to match the ALFA HaLow-R default configuration. The devices come preconfigured with IP 192.168.1.1, so we configure both Pis to use the same subnet for direct communication.
+
 **Network Architecture:**
 ```
 ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
 │   BASE PI        │         │  ALFA HaLow-R A  │         │  ALFA HaLow-R B  │
-│  192.168.100.1   │◄─Eth────│  (Access Point)  │~~~902MHz│  (Station Mode)  │
-│                  │         │                  │         │                  │
+│  192.168.1.10    │◄─Eth────│  (Access Point)  │~~~902MHz│  (Station Mode)  │
+│                  │         │  192.168.1.1     │         │  192.168.1.1     │
 └──────────────────┘         └──────────────────┘         └──────────────────┘
                                                                     │
                                                                    Eth
                                                                     │
                                                            ┌──────────────────┐
                                                            │   ROBOT PI       │
-                                                           │  192.168.100.2   │
+                                                           │  192.168.1.20    │
                                                            └──────────────────┘
 ```
 
@@ -76,7 +78,7 @@ This guide walks you through setting up the ALFA HaLow-R devices to create a wir
 
 ## Part 2: Set Static IP on Robot Pi (This Device)
 
-Currently your Robot Pi has IP `192.168.100.190`. We need to set it to `192.168.100.2`.
+We need to set the Robot Pi to `192.168.1.20` to match the HaLow device subnet.
 
 ### Option A: Using dhcpcd (Recommended for Raspberry Pi OS)
 
@@ -89,8 +91,7 @@ Currently your Robot Pi has IP `192.168.100.190`. We need to set it to `192.168.
    ```
    # HaLow Bridge - Robot Pi Static IP
    interface eth0
-   static ip_address=192.168.100.2/24
-   static routers=192.168.100.1
+   static ip_address=192.168.1.20/24
    static domain_name_servers=8.8.8.8 1.1.1.1
    ```
 
@@ -106,8 +107,7 @@ Currently your Robot Pi has IP `192.168.100.190`. We need to set it to `192.168.
 ### Option B: Using NetworkManager (if installed)
 
 ```bash
-sudo nmcli con mod "Wired connection 1" ipv4.addresses 192.168.100.2/24
-sudo nmcli con mod "Wired connection 1" ipv4.gateway 192.168.100.1
+sudo nmcli con mod "Wired connection 1" ipv4.addresses 192.168.1.20/24
 sudo nmcli con mod "Wired connection 1" ipv4.dns "8.8.8.8 1.1.1.1"
 sudo nmcli con mod "Wired connection 1" ipv4.method manual
 sudo nmcli con up "Wired connection 1"
@@ -117,7 +117,7 @@ sudo nmcli con up "Wired connection 1"
 
 ## Part 3: Set Static IP on Base Pi
 
-**On your Base Pi**, set the static IP to `192.168.100.1`:
+**On your Base Pi**, set the static IP to `192.168.1.10`:
 
 ### Using dhcpcd:
 
@@ -130,7 +130,7 @@ sudo nmcli con up "Wired connection 1"
    ```
    # HaLow Bridge - Base Pi Static IP
    interface eth0
-   static ip_address=192.168.100.1/24
+   static ip_address=192.168.1.10/24
    static domain_name_servers=8.8.8.8 1.1.1.1
    ```
 
@@ -167,21 +167,27 @@ sudo nmcli con up "Wired connection 1"
 
 ### Test Basic Connectivity
 
-1. **From Robot Pi, ping Base Pi:**
+1. **From Robot Pi, ping HaLow device:**
    ```bash
-   ping 192.168.100.1 -c 5
+   ping 192.168.1.1 -c 5
+   ```
+   This verifies your Robot Pi can reach the HaLow device on the same subnet.
+
+2. **From Robot Pi, ping Base Pi:**
+   ```bash
+   ping 192.168.1.10 -c 5
    ```
    Should see replies with RTT typically 20-100ms
 
-2. **From Base Pi, ping Robot Pi:**
+3. **From Base Pi, ping Robot Pi:**
    ```bash
-   ping 192.168.100.2 -c 5
+   ping 192.168.1.20 -c 5
    ```
 
-3. **Check link quality:**
+4. **Check link quality:**
    ```bash
    # Monitor ping continuously
-   ping 192.168.100.1 -i 0.2
+   ping 192.168.1.10 -i 0.2
    ```
    Press `Ctrl+C` to stop. Look for:
    - **Good:** RTT < 50ms, 0% packet loss
@@ -196,7 +202,7 @@ sudo apt install -y iperf3
 iperf3 -s
 
 # On Robot Pi - test throughput
-iperf3 -c 192.168.100.1 -t 10
+iperf3 -c 192.168.1.10 -t 10
 ```
 
 Expected throughput: 1-10 Mbps (depending on range and conditions)
@@ -213,7 +219,7 @@ Now configure the bridge software to use these IPs.
 cd /home/robotpi/Desktop/PI-HALOW-BRIDGE
 
 # Set Base Pi IP
-sudo bash scripts/set_bridge_ip.sh --robot 192.168.100.1
+sudo bash scripts/set_bridge_ip.sh --robot 192.168.1.10
 
 # This will:
 # - Save IP to /etc/serpent/base_pi_ip
@@ -227,7 +233,7 @@ sudo bash scripts/set_bridge_ip.sh --robot 192.168.100.1
 cd ~/PI-HALOW-BRIDGE  # Or wherever you cloned the repo
 
 # Set Robot Pi IP
-sudo bash scripts/set_bridge_ip.sh --base 192.168.100.2
+sudo bash scripts/set_bridge_ip.sh --base 192.168.1.20
 
 # Restart the bridge
 sudo systemctl restart serpent-base-bridge
@@ -247,8 +253,8 @@ sudo journalctl -u serpent-robot-bridge -f
 
 Look for:
 - `Control server listening on port 5001`
-- `Telemetry sender connecting to 192.168.100.1:5003`
-- `Video sender connecting to 192.168.100.1:5002`
+- `Telemetry sender connecting to 192.168.1.10:5003`
+- `Video sender connecting to 192.168.1.10:5002`
 
 **On Base Pi:**
 ```bash
@@ -257,7 +263,7 @@ sudo journalctl -u serpent-base-bridge -f
 ```
 
 Look for:
-- `Control client connecting to 192.168.100.2:5001`
+- `Control client connecting to 192.168.1.20:5001`
 - `Telemetry receiver listening on port 5003`
 - `Video receiver listening on port 5002`
 - `video_connected: true`
@@ -297,6 +303,19 @@ You should see RTT measurements in the telemetry.
 
 ## Troubleshooting
 
+### Subnet Mismatch Issues
+
+If you configured your Pis with 192.168.100.x addresses following an older version of this guide:
+- The HaLow devices use 192.168.1.1 by default
+- Your Pis won't be able to reach them on different subnets
+- Reconfigure using the 192.168.1.x addresses as shown above
+
+To fix:
+1. **On Robot Pi:** Change static IP to 192.168.1.20 (see Part 2)
+2. **On Base Pi:** Change static IP to 192.168.1.10 (see Part 3)
+3. **Update bridge IPs:** Run the commands in Part 6 with the new IPs
+4. **Reboot both Pis** to ensure all changes take effect
+
 ### HaLow Devices Won't Connect
 
 1. **Check power:** Ensure both devices have stable power (PoE or USB-C)
@@ -316,7 +335,7 @@ You should see RTT measurements in the telemetry.
    ```bash
    ip addr show eth0
    ```
-   Should show `192.168.100.2` on Robot Pi, `192.168.100.1` on Base Pi
+   Should show `192.168.1.20` on Robot Pi, `192.168.1.10` on Base Pi
 
 3. **Check Ethernet cables:** Try different cables
 
@@ -401,16 +420,17 @@ You should see RTT measurements in the telemetry.
 ## Quick Command Reference
 
 ```bash
-# Set Robot Pi IP to 192.168.100.2
+# Set Robot Pi IP to 192.168.1.20
 sudo nano /etc/dhcpcd.conf  # Add static IP config
 sudo reboot
 
 # Configure bridge to use Base Pi IP
 cd /home/robotpi/Desktop/PI-HALOW-BRIDGE
-sudo bash scripts/set_bridge_ip.sh --robot 192.168.100.1
+sudo bash scripts/set_bridge_ip.sh --robot 192.168.1.10
 
 # Check connectivity
-ping 192.168.100.1 -c 5
+ping 192.168.1.1 -c 5    # Ping HaLow device
+ping 192.168.1.10 -c 5   # Ping Base Pi
 
 # Monitor bridge logs
 sudo journalctl -u serpent-robot-bridge -f

@@ -24,19 +24,19 @@ fi
 MODE=""
 if [[ "$1" == "--robot" ]]; then
     MODE="robot"
-    STATIC_IP="192.168.100.2"
-    OTHER_IP="192.168.100.1"
+    STATIC_IP="192.168.1.20"
+    OTHER_IP="192.168.1.10"
     ROLE="Robot Pi"
 elif [[ "$1" == "--base" ]]; then
     MODE="base"
-    STATIC_IP="192.168.100.1"
-    OTHER_IP="192.168.100.2"
+    STATIC_IP="192.168.1.10"
+    OTHER_IP="192.168.1.20"
     ROLE="Base Pi"
 else
     echo "Usage: sudo bash $0 --robot|--base"
     echo ""
-    echo "  --robot  : Configure Robot Pi (192.168.100.2)"
-    echo "  --base   : Configure Base Pi (192.168.100.1)"
+    echo "  --robot  : Configure Robot Pi (192.168.1.20)"
+    echo "  --base   : Configure Base Pi (192.168.1.10)"
     exit 1
 fi
 
