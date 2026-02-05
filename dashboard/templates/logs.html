@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs - SERPENT Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">SERPENT Logs - {{ role|upper }}</span>
+            <div class="d-flex">
+                <a href="/" class="btn btn-outline-light btn-sm me-2">Dashboard</a>
+                <a href="/logs" class="btn btn-outline-light btn-sm me-2">Logs</a>
+                <a href="/diagnostics" class="btn btn-outline-light btn-sm">Diagnostics</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label for="service-select" class="form-label">Service</label>
+                <select id="service-select" class="form-select">
+                    <option value="robot">Robot Bridge</option>
+                    <option value="base">Base Bridge</option>
+                    <option value="backend">Backend</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="level-select" class="form-label">Log Level</label>
+                <select id="level-select" class="form-select">
+                    <option value="">ALL</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="lines-select" class="form-label">Lines</label>
+                <select id="lines-select" class="form-select">
+                    <option value="50">50</option>
+                    <option value="100" selected>100</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="search-input" class="form-label">Search</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Filter logs...">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button id="refresh-btn" class="btn btn-primary me-2">Refresh</button>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="auto-scroll-toggle" checked>
+                    <label class="form-check-label" for="auto-scroll-toggle">
+                        Auto-scroll
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div id="logs-container" style="max-height: 70vh; overflow-y: auto; font-family: monospace; font-size: 0.85rem;">
+                            <div class="text-center text-muted">Loading logs...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let autoScroll = true;
+        let autoRefreshInterval = null;
+
+        // Load logs
+        function loadLogs() {
+            const service = document.getElementById('service-select').value;
+            const level = document.getElementById('level-select').value;
+            const lines = document.getElementById('lines-select').value;
+            const search = document.getElementById('search-input').value.toLowerCase();
+
+            const params = new URLSearchParams({ service, lines });
+            if (level) params.append('level', level);
+
+            fetch(`/api/logs?${params.toString()}`)
+                .then(response => response.json())
+                .then(data => {
+                    displayLogs(data.logs, search);
+                })
+                .catch(error => {
+                    console.error('Failed to load logs:', error);
+                    document.getElementById('logs-container').innerHTML =
+                        '<div class="text-danger">Failed to load logs: ' + error.message + '</div>';
+                });
+        }
+
+        // Display logs
+        function displayLogs(logs, search) {
+            const container = document.getElementById('logs-container');
+
+            if (logs.length === 0) {
+                container.innerHTML = '<div class="text-muted">No logs found</div>';
+                return;
+            }
+
+            let html = '';
+            for (const log of logs) {
+                // Apply search filter
+                if (search && !log.message.toLowerCase().includes(search)) {
+                    continue;
+                }
+
+                // Format log entry
+                const levelClass = getLevelClass(log.level);
+                const timestamp = formatTimestamp(log.timestamp);
+
+                html += `<div class="log-entry ${levelClass}">`;
+                html += `<span class="log-timestamp">${timestamp}</span> `;
+                html += `<span class="log-level badge ${levelClass}">${log.level}</span> `;
+
+                // Pretty-print JSON if available
+                if (log.json_data) {
+                    html += `<span class="log-message">${escapeHtml(log.message)}</span>`;
+                    html += `<pre class="log-json">${escapeHtml(JSON.stringify(log.json_data, null, 2))}</pre>`;
+                } else {
+                    html += `<span class="log-message">${escapeHtml(log.message)}</span>`;
+                }
+
+                html += '</div>';
+            }
+
+            container.innerHTML = html;
+
+            // Auto-scroll to bottom
+            if (autoScroll) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        // Helper functions
+        function getLevelClass(level) {
+            const levelMap = {
+                'CRITICAL': 'bg-danger',
+                'ERROR': 'bg-danger',
+                'WARNING': 'bg-warning',
+                'INFO': 'bg-info',
+                'DEBUG': 'bg-secondary'
+            };
+            return levelMap[level] || 'bg-secondary';
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '--';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString();
+            } catch {
+                return timestamp;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners
+        document.getElementById('refresh-btn').addEventListener('click', loadLogs);
+        document.getElementById('service-select').addEventListener('change', loadLogs);
+        document.getElementById('level-select').addEventListener('change', loadLogs);
+        document.getElementById('lines-select').addEventListener('change', loadLogs);
+        document.getElementById('search-input').addEventListener('input', loadLogs);
+
+        document.getElementById('auto-scroll-toggle').addEventListener('change', function() {
+            autoScroll = this.checked;
+        });
+
+        // Auto-refresh every 5 seconds
+        autoRefreshInterval = setInterval(loadLogs, 5000);
+
+        // Initial load
+        loadLogs();
+    </script>
+
+    <style>
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .log-timestamp {
+            color: #666;
+            font-size: 0.8rem;
+        }
+        .log-level {
+            font-size: 0.75rem;
+            min-width: 70px;
+            display: inline-block;
+            text-align: center;
+        }
+        .log-message {
+            color: #333;
+        }
+        .log-json {
+            margin-top: 5px;
+            margin-left: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-left: 3px solid #007bff;
+            font-size: 0.8rem;
+        }
+    </style>
+</body>
+</html>

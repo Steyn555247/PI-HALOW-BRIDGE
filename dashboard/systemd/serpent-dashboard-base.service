@@ -1,0 +1,24 @@
+[Unit]
+Description=SERPENT Base Dashboard
+After=network.target serpent-base-bridge.service
+Wants=serpent-base-bridge.service
+# Only start if HDMI display is connected
+ConditionPathExists=/home/robotpi/Desktop/PI-HALOW-BRIDGE/scripts/check_hdmi.sh
+
+[Service]
+Type=simple
+User=robotpi
+Group=robotpi
+WorkingDirectory=/home/robotpi/Desktop/PI-HALOW-BRIDGE/dashboard
+Environment="DASHBOARD_ROLE=base_pi"
+Environment="DASHBOARD_PORT=5006"
+Environment="ENABLE_DIRECT_INSPECTION=True"
+Environment="ENABLE_SERVICE_CONTROL=False"
+# Check HDMI before starting
+ExecStartPre=/home/robotpi/Desktop/PI-HALOW-BRIDGE/scripts/check_hdmi.sh
+ExecStart=/home/robotpi/Desktop/PI-HALOW-BRIDGE/venv/bin/python3 web_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
