@@ -104,12 +104,29 @@ class VideoCapture:
                     # Skip ALSA and other control devices
                     if 'alsa' in device or 'preview' in device:
                         continue
-                    # Check if device is readable
-                    if os.access(device, os.R_OK):
-                        available.append(device)
-                        logger.debug(f"  ✓ {device} is accessible")
-                    else:
-                        logger.warning(f"  ✗ {device} exists but not readable (permission issue?)")
+
+                    # Test actual device access instead of checking permission bits
+                    # This works correctly in systemd context with DeviceAllow policy
+                    try:
+                        # Try to open device using device path (works better in systemd context)
+                        if '/dev/video' in device:
+                            # Actually try to open the device using the path directly
+                            cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+                            if cap.isOpened():
+                                available.append(device)
+                                logger.debug(f"  ✓ {device} is accessible (opened successfully)")
+                                cap.release()
+                            else:
+                                logger.debug(f"  ✗ {device} cannot be opened (may not be a capture device)")
+                                if cap is not None:
+                                    cap.release()
+                        else:
+                            # Fallback for non-standard device paths
+                            if os.access(device, os.R_OK):
+                                available.append(device)
+                                logger.debug(f"  ✓ {device} is accessible")
+                    except (ValueError, Exception) as e:
+                        logger.debug(f"  ✗ {device} error during access test: {e}")
                         
             except Exception as e:
                 logger.warning(f"Error scanning for video devices: {e}")
@@ -153,10 +170,15 @@ class VideoCapture:
             else:
                 device_idx = int(device) if str(device).isdigit() else camera_id
 
-            # Use V4L2 on Linux with integer index, default backend on Windows/Mac
+            # Use V4L2 on Linux, default backend on Windows/Mac
             if IS_LINUX:
-                logger.debug(f"Opening camera {camera_id} as V4L2 device index {device_idx}")
-                cap = cv2.VideoCapture(device_idx, cv2.CAP_V4L2)
+                # Try device path first (works better in systemd context)
+                if '/dev/video' in str(device):
+                    logger.debug(f"Opening camera {camera_id} as V4L2 device path {device}")
+                    cap = cv2.VideoCapture(str(device), cv2.CAP_V4L2)
+                else:
+                    logger.debug(f"Opening camera {camera_id} as V4L2 device index {device_idx}")
+                    cap = cv2.VideoCapture(device_idx, cv2.CAP_V4L2)
             else:
                 cap = cv2.VideoCapture(device_idx)
 
