@@ -45,6 +45,28 @@ BNO085_ADDRESS = int(os.getenv('BNO085_ADDRESS', '0x4A'), 16)
 BMP388_ADDRESS = int(os.getenv('BMP388_ADDRESS', '0x77'), 16)
 SENSOR_READ_INTERVAL = float(os.getenv('SENSOR_READ_INTERVAL', '0.1'))  # 100ms
 
+# PCA9548 I2C Multiplexer Configuration
+USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'true').lower() == 'true'
+I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
+
+# Sensor channel assignments on multiplexer
+IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '0'))
+BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '1'))
+
+# INA219 Current Sensor Configuration
+CURRENT_SENSOR_BATTERY_ADDR = int(os.getenv('CURRENT_SENSOR_BATTERY_ADDR', '0x40'), 16)
+CURRENT_SENSOR_BATTERY_CHANNEL = int(os.getenv('CURRENT_SENSOR_BATTERY_CHANNEL', '2'))
+
+CURRENT_SENSOR_SYSTEM_ADDR = int(os.getenv('CURRENT_SENSOR_SYSTEM_ADDR', '0x41'), 16)
+CURRENT_SENSOR_SYSTEM_CHANNEL = int(os.getenv('CURRENT_SENSOR_SYSTEM_CHANNEL', '3'))
+
+CURRENT_SENSOR_SERVO_ADDR = int(os.getenv('CURRENT_SENSOR_SERVO_ADDR', '0x44'), 16)
+CURRENT_SENSOR_SERVO_CHANNEL = int(os.getenv('CURRENT_SENSOR_SERVO_CHANNEL', '4'))
+
+# Current sensor shunt resistor value (ohms) - typically 0.1 ohm
+CURRENT_SENSOR_SHUNT_OHMS = float(os.getenv('CURRENT_SENSOR_SHUNT_OHMS', '0.1'))
+CURRENT_SENSOR_MAX_EXPECTED_AMPS = float(os.getenv('CURRENT_SENSOR_MAX_EXPECTED_AMPS', '3.2'))
+
 # Motoron Configuration (I2C)
 MOTORON_ADDRESSES = [
     int(os.getenv('MOTORON_ADDR_0', '0x10'), 16),

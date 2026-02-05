@@ -70,11 +70,38 @@ class HaLowBridge:
             active_motors=config.ACTIVE_MOTORS
         )
 
+        # Configure current sensors
+        current_sensors_config = {
+            'battery': {
+                'addr': config.CURRENT_SENSOR_BATTERY_ADDR,
+                'channel': config.CURRENT_SENSOR_BATTERY_CHANNEL,
+                'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
+                'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
+            },
+            'system': {
+                'addr': config.CURRENT_SENSOR_SYSTEM_ADDR,
+                'channel': config.CURRENT_SENSOR_SYSTEM_CHANNEL,
+                'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
+                'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
+            },
+            'servo': {
+                'addr': config.CURRENT_SENSOR_SERVO_ADDR,
+                'channel': config.CURRENT_SENSOR_SERVO_CHANNEL,
+                'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
+                'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
+            }
+        }
+
         self.sensor_reader = SensorReader(
             i2c_bus=config.I2C_BUS,
             bno085_addr=config.BNO085_ADDRESS,
             bmp388_addr=config.BMP388_ADDRESS,
-            read_interval=config.SENSOR_READ_INTERVAL
+            read_interval=config.SENSOR_READ_INTERVAL,
+            use_multiplexer=config.USE_I2C_MULTIPLEXER,
+            mux_addr=config.I2C_MUX_ADDRESS,
+            imu_channel=config.IMU_MUX_CHANNEL,
+            baro_channel=config.BAROMETER_MUX_CHANNEL,
+            current_sensors=current_sensors_config
         )
 
         self.video_capture = None
@@ -515,6 +542,10 @@ class HaLowBridge:
                 sensor_data = self.sensor_reader.get_all_data()
                 motor_currents = self.actuator_controller.get_motor_currents()
                 estop_info = self.actuator_controller.get_estop_info()
+                current_data = sensor_data.get('current', {})
+
+                # Get battery voltage from current sensor, fallback to hardcoded value
+                battery_voltage = current_data.get('battery', {}).get('voltage', 12.0)
 
                 control_age_ms = int((time.time() - self.last_control_time) * 1000)
 
@@ -533,7 +564,7 @@ class HaLowBridge:
                         }
 
                 telemetry = {
-                    'voltage': 12.0,  # TODO: Read actual voltage
+                    'voltage': battery_voltage,
                     'height': self.height,
                     'force': self.force,
                     'chainsaw_force': 0.0,
@@ -541,6 +572,9 @@ class HaLowBridge:
                     'imu': sensor_data.get('imu', {}),
                     'barometer': sensor_data.get('barometer', {}),
                     'motor_currents': motor_currents,
+                    'battery': current_data.get('battery', {}),
+                    'system_power': current_data.get('system', {}),
+                    'servo_power': current_data.get('servo', {}),
                     'estop': estop_info,
                     'control_age_ms': control_age_ms,
                     'control_established': self.control_established,
