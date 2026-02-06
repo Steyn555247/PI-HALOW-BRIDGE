@@ -55,6 +55,11 @@ DASHBOARD_PORT = int(os.environ.get('DASHBOARD_PORT',
 ENABLE_DIRECT_INSPECTION = os.environ.get('ENABLE_DIRECT_INSPECTION', 'True').lower() == 'true'
 ENABLE_SERVICE_CONTROL = os.environ.get('ENABLE_SERVICE_CONTROL', 'False').lower() == 'true'
 
+# Safety Feature Toggles (for local testing only)
+# WARNING: Disabling watchdog removes critical safety protections
+# Only disable for local manual testing where external control is not expected
+DISABLE_WATCHDOG_FOR_LOCAL_TESTING = os.environ.get('DISABLE_WATCHDOG_FOR_LOCAL_TESTING', 'True').lower() == 'true'
+
 # Update Intervals
 STATUS_UPDATE_INTERVAL = 1.0  # seconds - WebSocket push rate
 STATUS_CACHE_TTL = 1.0  # seconds - Cache aggregated status

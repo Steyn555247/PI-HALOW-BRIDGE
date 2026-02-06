@@ -309,6 +309,28 @@ class ActuatorController:
                                  f"Control age: {control_age_s:.2f}s")
             return True
 
+    def clear_estop_local(self) -> bool:
+        """
+        Clear E-STOP from local dashboard - bypasses control timeout checks.
+
+        This is intended for local manual testing where external control is not expected.
+        Use only when running dashboard on the robot itself.
+
+        Returns:
+            True if E-STOP was cleared, False if already cleared
+        """
+        with self._lock:
+            if not self._estop_engaged:
+                logger.info("E-STOP clear_local: already cleared")
+                return True
+
+            # Clear E-STOP without validation checks
+            self._estop_engaged = False
+            self._log_estop_event("CLEARED", "dashboard_manual",
+                                 "Cleared manually from local dashboard")
+            logger.info("E-STOP cleared via local dashboard (manual override)")
+            return True
+
     def is_estop_engaged(self) -> bool:
         """
         Check if E-STOP is engaged.

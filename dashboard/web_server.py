@@ -30,6 +30,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import actuator controller for direct control (when enabled)
+actuator_controller = None
+if config.ENABLE_DIRECT_INSPECTION and config.DASHBOARD_ROLE == 'robot_pi':
+    try:
+        sys.path.insert(0, str(project_root / 'robot_pi'))
+        import config as robot_config
+        from actuator_controller import ActuatorController
+
+        # Create a local actuator controller instance for dashboard use
+        actuator_controller = ActuatorController(
+            motoron_addresses=robot_config.MOTORON_ADDRESSES,
+            servo_gpio=robot_config.SERVO_GPIO_PIN,
+            servo_freq=robot_config.SERVO_FREQ,
+            active_motors=robot_config.ACTIVE_MOTORS
+        )
+        actuator_controller.start()
+        logger.info("Direct robot control enabled - actuator controller initialized")
+    except Exception as e:
+        logger.warning(f"Could not initialize actuator controller for direct control: {e}")
+        actuator_controller = None
+
 # Create Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'serpent-dashboard-secret-key'
@@ -265,6 +286,119 @@ def api_restart_service():
 
     except Exception as e:
         logger.error(f"Service restart failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/motor/set', methods=['POST'])
+def api_motor_set():
+    """Set motor speed (direct control - robot Pi only)"""
+    try:
+        # Check if running on robot Pi with direct access
+        if config.DASHBOARD_ROLE != 'robot_pi':
+            return jsonify({'error': 'Motor control only available on robot Pi'}), 403
+
+        # Get parameters
+        data = request.get_json()
+        motor_id = data.get('motor_id')
+        speed = data.get('speed')
+
+        if motor_id is None or speed is None:
+            return jsonify({'error': 'motor_id and speed required'}), 400
+
+        # Validate parameters
+        try:
+            motor_id = int(motor_id)
+            speed = int(speed)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'motor_id and speed must be integers'}), 400
+
+        if motor_id < 0 or motor_id > 7:
+            return jsonify({'error': 'motor_id must be 0-7'}), 400
+
+        if speed < -800 or speed > 800:
+            return jsonify({'error': 'speed must be -800 to +800'}), 400
+
+        # Check if actuator controller is available
+        if actuator_controller is None:
+            return jsonify({'error': 'Actuator controller not initialized'}), 503
+
+        # Try to set motor speed
+        success = actuator_controller.set_motor_speed(motor_id, speed)
+
+        # Get current e-stop status
+        estop_info = actuator_controller.get_estop_info()
+
+        return jsonify({
+            'success': success,
+            'motor_id': motor_id,
+            'speed': speed,
+            'estop_engaged': estop_info['engaged'],
+            'estop_reason': estop_info['reason'],
+            'message': 'Motor command sent' if success else 'E-STOP engaged - motor blocked'
+        })
+
+    except Exception as e:
+        logger.error(f"Motor control failed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/estop/clear', methods=['POST'])
+def api_estop_clear():
+    """Clear E-STOP (local manual override - robot Pi only)"""
+    try:
+        # Check if running on robot Pi with direct access
+        if config.DASHBOARD_ROLE != 'robot_pi':
+            return jsonify({'error': 'E-STOP control only available on robot Pi'}), 403
+
+        # Check if actuator controller is available
+        if actuator_controller is None:
+            return jsonify({'error': 'Actuator controller not initialized'}), 503
+
+        # Clear e-stop using local method (bypasses control checks)
+        success = actuator_controller.clear_estop_local()
+
+        # Get updated e-stop status
+        estop_info = actuator_controller.get_estop_info()
+
+        return jsonify({
+            'success': success,
+            'estop_engaged': estop_info['engaged'],
+            'estop_reason': estop_info['reason'],
+            'message': 'E-STOP cleared successfully' if success else 'E-STOP already cleared'
+        })
+
+    except Exception as e:
+        logger.error(f"E-STOP clear failed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/estop/engage', methods=['POST'])
+def api_estop_engage():
+    """Engage E-STOP (emergency stop - robot Pi only)"""
+    try:
+        # Check if running on robot Pi with direct access
+        if config.DASHBOARD_ROLE != 'robot_pi':
+            return jsonify({'error': 'E-STOP control only available on robot Pi'}), 403
+
+        # Check if actuator controller is available
+        if actuator_controller is None:
+            return jsonify({'error': 'Actuator controller not initialized'}), 503
+
+        # Engage e-stop
+        actuator_controller.engage_estop("operator_command", "Engaged from dashboard")
+
+        # Get updated e-stop status
+        estop_info = actuator_controller.get_estop_info()
+
+        return jsonify({
+            'success': True,
+            'estop_engaged': estop_info['engaged'],
+            'estop_reason': estop_info['reason'],
+            'message': 'E-STOP engaged'
+        })
+
+    except Exception as e:
+        logger.error(f"E-STOP engage failed: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

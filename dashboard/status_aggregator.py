@@ -152,9 +152,14 @@ def _collect_base_status() -> Dict:
                 'telemetry': log_status.get('telemetry', 'unknown'),
                 'video': log_status.get('video', 'unknown'),
             }
+            # Try to get actual estop_reason from logs, fallback to generic message
+            estop_reason = log_status.get('estop_reason') or log_status.get('robot_estop_reason')
+            if not estop_reason:
+                estop_reason = 'forwarded from robot' if log_status.get('robot_estop', False) else 'unknown'
+
             status['estop'] = {
                 'engaged': log_status.get('robot_estop', False),
-                'reason': 'forwarded from robot',
+                'reason': estop_reason,
             }
 
         status['health'] = {

@@ -629,34 +629,46 @@ class HaLowBridge:
         1. If no valid control for WATCHDOG_TIMEOUT_S -> E-STOP
         2. If control never established after STARTUP_GRACE_S -> E-STOP (stays latched)
         3. Watchdog can only ENGAGE E-STOP, never clear it
+
+        NOTE: Can be disabled via config.DISABLE_WATCHDOG_FOR_LOCAL_TESTING for local testing
         """
         last_status_log = time.time()
+
+        # Check if watchdog is disabled for local testing
+        watchdog_disabled = getattr(config, 'DISABLE_WATCHDOG_FOR_LOCAL_TESTING', False)
+        if watchdog_disabled:
+            logger.warning("=" * 60)
+            logger.warning("WATCHDOG DISABLED FOR LOCAL TESTING")
+            logger.warning("Safety timeouts are NOT enforced")
+            logger.warning("=" * 60)
 
         while self.running:
             try:
                 time.sleep(1.0)
                 now = time.time()
-
-                # Check startup grace period
                 uptime = now - self.boot_time
-                if uptime > STARTUP_GRACE_S and not self.control_established:
-                    if not self.actuator_controller.is_estop_engaged():
-                        logger.error(f"Control not established after {uptime:.0f}s, engaging E-STOP")
-                        self.actuator_controller.engage_estop(
-                            ESTOP_REASON_STARTUP_TIMEOUT,
-                            f"No control after {STARTUP_GRACE_S}s"
-                        )
-                    # Continue checking - E-STOP stays latched
-
-                # Check control timeout (always, even before control_established)
                 control_age = now - self.last_control_time
-                if control_age > WATCHDOG_TIMEOUT_S:
-                    if not self.actuator_controller.is_estop_engaged():
-                        logger.error(f"Control timeout ({control_age:.1f}s), engaging E-STOP")
-                        self.actuator_controller.engage_estop(
-                            ESTOP_REASON_WATCHDOG,
-                            f"No control for {control_age:.1f}s"
-                        )
+
+                # WATCHDOG SAFETY CHECKS - only if not disabled
+                if not watchdog_disabled:
+                    # Check startup grace period
+                    if uptime > STARTUP_GRACE_S and not self.control_established:
+                        if not self.actuator_controller.is_estop_engaged():
+                            logger.error(f"Control not established after {uptime:.0f}s, engaging E-STOP")
+                            self.actuator_controller.engage_estop(
+                                ESTOP_REASON_STARTUP_TIMEOUT,
+                                f"No control after {STARTUP_GRACE_S}s"
+                            )
+                        # Continue checking - E-STOP stays latched
+
+                    # Check control timeout (always, even before control_established)
+                    if control_age > WATCHDOG_TIMEOUT_S:
+                        if not self.actuator_controller.is_estop_engaged():
+                            logger.error(f"Control timeout ({control_age:.1f}s), engaging E-STOP")
+                            self.actuator_controller.engage_estop(
+                                ESTOP_REASON_WATCHDOG,
+                                f"No control for {control_age:.1f}s"
+                            )
 
                 # Log status every 10 seconds
                 if now - last_status_log > 10.0:
@@ -670,14 +682,15 @@ class HaLowBridge:
                         "telemetry_connected": self.telemetry_connected,
                         "estop_engaged": estop_info["engaged"],
                         "estop_reason": estop_info["reason"],
-                        "psk_valid": self.framer.is_authenticated()
+                        "psk_valid": self.framer.is_authenticated(),
+                        "watchdog_disabled": watchdog_disabled
                     }
                     logger.info(json.dumps(status))
                     last_status_log = now
 
             except Exception as e:
                 logger.error(f"Watchdog error: {e}")
-                # Engage E-STOP on watchdog error
+                # Engage E-STOP on watchdog error (even if watchdog is disabled, errors still trigger E-STOP)
                 self.actuator_controller.engage_estop(
                     ESTOP_REASON_INTERNAL_ERROR,
                     f"Watchdog error: {e}"

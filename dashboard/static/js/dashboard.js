@@ -318,6 +318,90 @@ function setText(id, value) {
     }
 }
 
+// ============================================================================
+// Motor Control Functions
+// ============================================================================
+
+// Set motor speed
+function setMotor(motorId, speed) {
+    fetch('/api/motor/set', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            motor_id: motorId,
+            speed: speed
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log(`Motor ${motorId} set to speed ${speed}`);
+        } else {
+            console.warn(`Motor command failed: ${data.message}`);
+            if (data.estop_engaged) {
+                alert(`Motor command blocked: E-STOP is engaged (${data.estop_reason})`);
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Motor control error:', error);
+        alert('Failed to send motor command: ' + error);
+    });
+}
+
+// Clear E-STOP
+function clearEstop() {
+    if (!confirm('Are you sure you want to clear the E-STOP?\n\nEnsure all safety checks are complete before proceeding.')) {
+        return;
+    }
+
+    fetch('/api/estop/clear', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('E-STOP cleared successfully');
+            alert('E-STOP cleared. Motors are now enabled.');
+        } else {
+            console.warn('E-STOP clear failed:', data.message);
+            alert('Failed to clear E-STOP: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('E-STOP clear error:', error);
+        alert('Failed to clear E-STOP: ' + error);
+    });
+}
+
+// Engage E-STOP (Emergency Stop)
+function engageEstop() {
+    fetch('/api/estop/engage', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('E-STOP engaged successfully');
+            alert('E-STOP ENGAGED. All motors stopped.');
+        } else {
+            console.warn('E-STOP engage failed:', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('E-STOP engage error:', error);
+        alert('Failed to engage E-STOP: ' + error);
+    });
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Dashboard initializing...');

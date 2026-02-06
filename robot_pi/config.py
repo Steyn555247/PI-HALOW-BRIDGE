@@ -92,6 +92,12 @@ STARTUP_GRACE = STARTUP_GRACE_S        # 30.0 seconds - DO NOT CHANGE
 RECONNECT_DELAY = RECONNECT_DELAY_S    # 2.0 seconds
 EMERGENCY_STOP_ENABLED = True
 
+# Safety Feature Toggles (for local testing only)
+# WARNING: Disabling watchdog removes critical safety protections
+# Only disable for local manual testing where external control is not expected
+# Set to False to re-enable watchdog safety features
+DISABLE_WATCHDOG_FOR_LOCAL_TESTING = os.getenv('DISABLE_WATCHDOG_FOR_LOCAL_TESTING', 'True').lower() == 'true'
+
 # Telemetry Configuration
 TELEMETRY_INTERVAL = float(os.getenv('TELEMETRY_INTERVAL', '0.1'))  # 100ms
 
