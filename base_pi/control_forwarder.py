@@ -25,11 +25,11 @@ logger = logging.getLogger(__name__)
 class ControlForwarder:
     """Forwards authenticated control commands to Robot Pi over TCP"""
 
-    def __init__(self, robot_ip: str, control_port: int, reconnect_delay: float = 2.0,
+    def __init__(self, robot_ip: str, control_port: int, reconnect_delay: float = 0.5,
                  framer: Optional[SecureFramer] = None):
         self.robot_ip = robot_ip
         self.control_port = control_port
-        self.reconnect_delay = reconnect_delay
+        self.reconnect_delay = reconnect_delay  # Reduced for faster recovery
 
         # Use provided framer or create new one
         self.framer = framer or SecureFramer(role="base_pi_control")
@@ -56,10 +56,21 @@ class ControlForwarder:
                         pass
 
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+                # PRIORITY: Disable Nagle's algorithm for low-latency control
+                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+                # Enable TCP keepalive for faster dead connection detection
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                # Linux-specific keepalive settings (in seconds)
+                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)   # Start after 5s idle
+                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)  # Probe every 2s
+                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)    # 3 probes before dead
+
                 self.socket.settimeout(5.0)
                 self.socket.connect((self.robot_ip, self.control_port))
                 # Keep timeout for all operations - prevent indefinite blocking
-                self.socket.settimeout(5.0)
+                self.socket.settimeout(3.0)  # Reduced from 5s for faster failure detection
 
                 self.connected = True
                 logger.info(f"Connected to Robot Pi at {self.robot_ip}:{self.control_port}")

@@ -20,7 +20,7 @@ import json
 import socket
 import threading
 from typing import Optional, Dict, Any
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from functools import partial
 
 import socketio
@@ -85,18 +85,39 @@ class VideoHTTPHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
+        # Stale video detection: exit if no new frame for this many seconds
+        STALE_TIMEOUT_S = 3.0
+
         try:
+            last_frame_time = 0
+            last_frame_received_at = time.time()
+
             while True:
-                frame = self.video_receiver.get_frame()
-                if frame:
-                    self.wfile.write(b'--frame\r\n')
-                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
-                    self.wfile.write(f'Content-Length: {len(frame)}\r\n'.encode())
-                    self.wfile.write(b'\r\n')
-                    self.wfile.write(frame)
-                    self.wfile.write(b'\r\n')
+                # Check if video receiver is still connected
+                if not self.video_receiver.is_connected():
+                    # Video disconnected, exit gracefully
+                    break
+
+                # Only send if we have a new frame (check timestamp)
+                current_time = self.video_receiver.last_frame_time
+                if current_time > last_frame_time:
+                    frame = self.video_receiver.get_frame()
+                    if frame:
+                        self.wfile.write(b'--frame\r\n')
+                        self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                        self.wfile.write(f'Content-Length: {len(frame)}\r\n'.encode())
+                        self.wfile.write(b'\r\n')
+                        self.wfile.write(frame)
+                        self.wfile.write(b'\r\n')
+                        last_frame_time = current_time
+                        last_frame_received_at = time.time()
                 else:
-                    time.sleep(0.1)
+                    # No new frame - check for stale timeout
+                    if time.time() - last_frame_received_at > STALE_TIMEOUT_S:
+                        # No frames for too long, exit to allow reconnection
+                        break
+                    # Wait briefly for new frame (10ms = 100 FPS max check rate)
+                    time.sleep(0.01)
         except (BrokenPipeError, ConnectionResetError):
             pass  # Client disconnected
 
@@ -371,7 +392,7 @@ class HaLowBridge:
             # Create handler with video_receiver bound
             handler = partial(VideoHTTPHandler, self.video_receiver)
 
-            self.http_server = HTTPServer(('0.0.0.0', config.VIDEO_HTTP_PORT), handler)
+            self.http_server = ThreadingHTTPServer(('0.0.0.0', config.VIDEO_HTTP_PORT), handler)
             self.http_thread = threading.Thread(
                 target=self.http_server.serve_forever,
                 daemon=True
