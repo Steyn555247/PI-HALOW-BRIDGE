@@ -3,6 +3,11 @@ Sensor Reader - Reads IMU and barometer via I2C
 
 SIM_MODE: When enabled or when hardware is unavailable, generates deterministic
 mock sensor data for testing without I2C hardware.
+
+PHASE 6 OPTIMIZATION:
+- Parallel I2C reads using ThreadPoolExecutor
+- IMU and barometer read concurrently instead of sequentially
+- Reduces total read time from IMU_time + Baro_time to max(IMU_time, Baro_time)
 """
 import logging
 import math
@@ -11,6 +16,7 @@ import threading
 import os
 import sys
 from typing import Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, Future
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -38,7 +44,9 @@ class SensorReader:
     """Reads BNO085 IMU and BMP388 barometer"""
 
     def __init__(self, i2c_bus: int = 1, bno085_addr: int = 0x4A, bmp388_addr: int = 0x77,
-                 read_interval: float = 0.1):
+                 read_interval: float = 0.1, use_multiplexer: bool = False,
+                 mux_addr: int = 0x70, imu_channel: int = 0, baro_channel: int = 1,
+                 current_sensors: Optional[Dict] = None):
         self.i2c_bus = i2c_bus
         self.bno085_addr = bno085_addr
         self.bmp388_addr = bmp388_addr
@@ -51,11 +59,15 @@ class SensorReader:
         self.running = False
         self.read_thread: Optional[threading.Thread] = None
 
+        # Phase 6: ThreadPoolExecutor for parallel I2C reads
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="i2c")
+
         self.latest_imu_data: Dict[str, float] = {}
         self.latest_baro_data: Dict[str, float] = {}
+        self.latest_current_data: Dict[str, Dict[str, float]] = {}
         self.data_lock = threading.Lock()
 
-        logger.info(f"SensorReader initialized: I2C bus {i2c_bus}")
+        logger.info(f"SensorReader initialized: I2C bus {i2c_bus} (parallel reads enabled)")
 
     def start(self):
         """Initialize sensors and start reading"""
@@ -104,72 +116,95 @@ class SensorReader:
         if self.read_thread:
             self.read_thread.join(timeout=2.0)
 
+        # Shutdown thread pool
+        self.executor.shutdown(wait=True, cancel_futures=True)
+
         logger.info("SensorReader stopped")
 
+    def _read_imu(self) -> Optional[Dict[str, float]]:
+        """Read IMU data (called in parallel)"""
+        try:
+            if self.bno085:
+                quat_i, quat_j, quat_k, quat_real = self.bno085.quaternion
+                accel_x, accel_y, accel_z = self.bno085.acceleration
+                gyro_x, gyro_y, gyro_z = self.bno085.gyro
+
+                return {
+                    'quat_w': quat_real or 1.0,
+                    'quat_x': quat_i or 0.0,
+                    'quat_y': quat_j or 0.0,
+                    'quat_z': quat_k or 0.0,
+                    'accel_x': accel_x or 0.0,
+                    'accel_y': accel_y or 0.0,
+                    'accel_z': accel_z or 9.8,
+                    'gyro_x': gyro_x or 0.0,
+                    'gyro_y': gyro_y or 0.0,
+                    'gyro_z': gyro_z or 0.0
+                }
+            else:
+                # Mock IMU data
+                t = time.time()
+                return {
+                    'quat_w': 1.0, 'quat_x': 0.0, 'quat_y': 0.0, 'quat_z': 0.0,
+                    'accel_x': 0.01 * math.sin(t * 0.5),
+                    'accel_y': 0.01 * math.cos(t * 0.5),
+                    'accel_z': 9.81 + 0.01 * math.sin(t * 0.3),
+                    'gyro_x': 0.001 * math.sin(t * 0.7),
+                    'gyro_y': 0.001 * math.cos(t * 0.7),
+                    'gyro_z': 0.001 * math.sin(t * 0.9)
+                }
+        except Exception as e:
+            logger.error(f"Error reading IMU: {e}")
+            return None
+
+    def _read_barometer(self) -> Optional[Dict[str, float]]:
+        """Read barometer data (called in parallel)"""
+        try:
+            if self.bmp388:
+                pressure = self.bmp388.pressure
+                temperature = self.bmp388.temperature
+                altitude = self.bmp388.altitude
+
+                return {
+                    'pressure': pressure,
+                    'temperature': temperature,
+                    'altitude': altitude
+                }
+            else:
+                # Mock barometer data
+                t = time.time()
+                return {
+                    'pressure': 1013.25 + 0.1 * math.sin(t * 0.1),
+                    'temperature': 25.0 + 0.5 * math.sin(t * 0.05),
+                    'altitude': 100.0 + 0.1 * math.sin(t * 0.2)
+                }
+        except Exception as e:
+            logger.error(f"Error reading barometer: {e}")
+            return None
+
     def _read_loop(self):
-        """Main sensor reading loop"""
+        """
+        Main sensor reading loop.
+
+        PHASE 6: Uses ThreadPoolExecutor to read IMU and barometer in parallel.
+        Reduces total read time from sequential (IMU + Baro) to parallel (max(IMU, Baro)).
+        """
         while self.running:
             try:
-                # Read IMU
-                if self.bno085:
-                    try:
-                        quat_i, quat_j, quat_k, quat_real = self.bno085.quaternion
-                        accel_x, accel_y, accel_z = self.bno085.acceleration
-                        gyro_x, gyro_y, gyro_z = self.bno085.gyro
+                # Submit both reads to executor (parallel execution)
+                imu_future: Future = self.executor.submit(self._read_imu)
+                baro_future: Future = self.executor.submit(self._read_barometer)
 
-                        with self.data_lock:
-                            self.latest_imu_data = {
-                                'quat_w': quat_real or 1.0,
-                                'quat_x': quat_i or 0.0,
-                                'quat_y': quat_j or 0.0,
-                                'quat_z': quat_k or 0.0,
-                                'accel_x': accel_x or 0.0,
-                                'accel_y': accel_y or 0.0,
-                                'accel_z': accel_z or 9.8,
-                                'gyro_x': gyro_x or 0.0,
-                                'gyro_y': gyro_y or 0.0,
-                                'gyro_z': gyro_z or 0.0
-                            }
-                    except Exception as e:
-                        logger.error(f"Error reading BNO085: {e}")
-                else:
-                    # Mock IMU data - deterministic with slight time-based variation
-                    t = time.time()
-                    with self.data_lock:
-                        self.latest_imu_data = {
-                            'quat_w': 1.0, 'quat_x': 0.0, 'quat_y': 0.0, 'quat_z': 0.0,
-                            'accel_x': 0.01 * math.sin(t * 0.5),
-                            'accel_y': 0.01 * math.cos(t * 0.5),
-                            'accel_z': 9.81 + 0.01 * math.sin(t * 0.3),
-                            'gyro_x': 0.001 * math.sin(t * 0.7),
-                            'gyro_y': 0.001 * math.cos(t * 0.7),
-                            'gyro_z': 0.001 * math.sin(t * 0.9)
-                        }
+                # Wait for both to complete (with timeout)
+                imu_data = imu_future.result(timeout=0.5)
+                baro_data = baro_future.result(timeout=0.5)
 
-                # Read Barometer
-                if self.bmp388:
-                    try:
-                        pressure = self.bmp388.pressure
-                        temperature = self.bmp388.temperature
-                        altitude = self.bmp388.altitude
-
-                        with self.data_lock:
-                            self.latest_baro_data = {
-                                'pressure': pressure,
-                                'temperature': temperature,
-                                'altitude': altitude
-                            }
-                    except Exception as e:
-                        logger.error(f"Error reading BMP388: {e}")
-                else:
-                    # Mock barometer data - deterministic with slight time-based variation
-                    t = time.time()
-                    with self.data_lock:
-                        self.latest_baro_data = {
-                            'pressure': 1013.25 + 0.1 * math.sin(t * 0.1),
-                            'temperature': 25.0 + 0.5 * math.sin(t * 0.05),
-                            'altitude': 100.0 + 0.1 * math.sin(t * 0.2)
-                        }
+                # Update latest data atomically
+                with self.data_lock:
+                    if imu_data:
+                        self.latest_imu_data = imu_data
+                    if baro_data:
+                        self.latest_baro_data = baro_data
 
                 time.sleep(self.read_interval)
 
@@ -192,5 +227,6 @@ class SensorReader:
         with self.data_lock:
             return {
                 'imu': self.latest_imu_data.copy(),
-                'barometer': self.latest_baro_data.copy()
+                'barometer': self.latest_baro_data.copy(),
+                'current': self.latest_current_data.copy()
             }
