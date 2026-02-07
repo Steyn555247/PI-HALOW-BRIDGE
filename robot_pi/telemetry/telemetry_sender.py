@@ -17,10 +17,12 @@ import logging
 import json
 import socket
 import time
+import sys
+import os
 from typing import Optional, Dict, Any
 
-import sys
-sys.path.insert(0, '..')
+# Add project root to path for common imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from common.connection_manager import (
     ExponentialBackoff, CircuitBreaker, configure_tcp_keepalive
 )

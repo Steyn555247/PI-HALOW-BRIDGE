@@ -21,9 +21,11 @@ import logging
 import socket
 import time
 import sys
+import os
 from typing import Optional, Callable
 
-sys.path.insert(0, '..')
+# Add project root to path for common imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from common.connection_manager import (
     create_server_socket, ExponentialBackoff, CircuitBreaker,
     configure_tcp_keepalive

@@ -7,7 +7,6 @@ Thread-safe access with locks for concurrent reads/writes.
 
 import threading
 import time
-import numpy as np
 from typing import Dict, List, Optional, Any
 from collections import deque
 
