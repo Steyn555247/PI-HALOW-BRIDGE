@@ -20,7 +20,7 @@ import json
 import socket
 import threading
 from typing import Optional, Dict, Any
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from functools import partial
 
 import socketio
@@ -32,6 +32,12 @@ import config
 from control_forwarder import ControlForwarder
 from telemetry_receiver import TelemetryReceiver
 from video_receiver import VideoReceiver
+from telemetry_buffer import TelemetryBuffer
+from telemetry_websocket import TelemetryWebSocketServer, run_websocket_server
+from telemetry_storage import TelemetryStorage
+from telemetry_controller import format_for_controller, should_send_update
+from video_recorder import VideoRecorder
+from telemetry_metrics import add_derived_metrics
 from common.framing import SecureFramer
 from common.constants import (
     MSG_EMERGENCY_STOP, MSG_PING, MSG_PONG,
@@ -48,13 +54,15 @@ logger = logging.getLogger(__name__)
 
 class VideoHTTPHandler(BaseHTTPRequestHandler):
     """
-    HTTP handler for MJPEG video streaming.
+    HTTP handler for MJPEG video streaming and telemetry API.
 
     Serves video frames from the VideoReceiver as an MJPEG stream.
+    Also serves dashboard and telemetry API endpoints.
     """
 
-    def __init__(self, video_receiver, *args, **kwargs):
+    def __init__(self, video_receiver, telemetry_buffer, *args, **kwargs):
         self.video_receiver = video_receiver
+        self.telemetry_buffer = telemetry_buffer
         super().__init__(*args, **kwargs)
 
     def log_message(self, format, *args):
@@ -63,13 +71,26 @@ class VideoHTTPHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests"""
+        logger.debug(f"GET request: {self.path}")
+
         if self.path == '/video' or self.path == '/video.mjpeg':
             self._serve_mjpeg_stream()
         elif self.path == '/frame' or self.path == '/frame.jpg':
             self._serve_single_frame()
         elif self.path == '/health':
             self._serve_health()
+        elif self.path == '/dashboard' or self.path == '/':
+            self._serve_file('static/dashboard.html', 'text/html')
+        elif self.path.startswith('/static/'):
+            self._serve_static_file(self.path[8:])
+        elif self.path == '/api/telemetry/latest':
+            self._serve_telemetry_latest()
+        elif self.path.startswith('/api/telemetry/history'):
+            self._serve_telemetry_history()
+        elif self.path == '/api/telemetry/stats':
+            self._serve_telemetry_stats()
         else:
+            logger.warning(f"404 Not Found: {self.path}")
             self.send_error(404, 'Not Found')
 
     def _serve_mjpeg_stream(self):
@@ -85,19 +106,9 @@ class VideoHTTPHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
-        # Stale video detection: exit if no new frame for this many seconds
-        STALE_TIMEOUT_S = 3.0
-
         try:
             last_frame_time = 0
-            last_frame_received_at = time.time()
-
             while True:
-                # Check if video receiver is still connected
-                if not self.video_receiver.is_connected():
-                    # Video disconnected, exit gracefully
-                    break
-
                 # Only send if we have a new frame (check timestamp)
                 current_time = self.video_receiver.last_frame_time
                 if current_time > last_frame_time:
@@ -110,12 +121,7 @@ class VideoHTTPHandler(BaseHTTPRequestHandler):
                         self.wfile.write(frame)
                         self.wfile.write(b'\r\n')
                         last_frame_time = current_time
-                        last_frame_received_at = time.time()
                 else:
-                    # No new frame - check for stale timeout
-                    if time.time() - last_frame_received_at > STALE_TIMEOUT_S:
-                        # No frames for too long, exit to allow reconnection
-                        break
                     # Wait briefly for new frame (10ms = 100 FPS max check rate)
                     time.sleep(0.01)
         except (BrokenPipeError, ConnectionResetError):
@@ -158,6 +164,111 @@ class VideoHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_file(self, filepath, content_type):
+        """Serve a static file"""
+        try:
+            # Get the directory where this script is located
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            full_path = os.path.join(script_dir, filepath)
+
+            logger.debug(f"Attempting to serve file: {full_path}")
+
+            if not os.path.exists(full_path):
+                logger.error(f"File not found: {full_path}")
+                self.send_error(404, f'File not found: {filepath}')
+                return
+
+            with open(full_path, 'rb') as f:
+                content = f.read()
+
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', len(content))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(content)
+            logger.debug(f"Successfully served file: {filepath}")
+        except FileNotFoundError as e:
+            logger.error(f"File not found: {filepath} - {e}")
+            self.send_error(404, f'File not found: {filepath}')
+        except Exception as e:
+            logger.error(f"Error serving file {filepath}: {e}")
+            self.send_error(500, 'Internal server error')
+
+    def _serve_static_file(self, filepath):
+        """Serve static files (CSS, JS, etc.)"""
+        content_types = {
+            '.html': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.svg': 'image/svg+xml'
+        }
+
+        ext = os.path.splitext(filepath)[1]
+        content_type = content_types.get(ext, 'application/octet-stream')
+        self._serve_file(f'static/{filepath}', content_type)
+
+    def _serve_telemetry_latest(self):
+        """Serve latest telemetry data"""
+        if not self.telemetry_buffer:
+            self.send_error(503, 'Telemetry buffer not available')
+            return
+
+        latest = self.telemetry_buffer.get_latest()
+        if latest:
+            # Add derived metrics
+            enhanced = add_derived_metrics(latest)
+            body = json.dumps(enhanced).encode()
+        else:
+            body = json.dumps({'error': 'No telemetry data'}).encode()
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', len(body))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_telemetry_history(self):
+        """Serve telemetry history"""
+        if not self.telemetry_buffer:
+            self.send_error(503, 'Telemetry buffer not available')
+            return
+
+        # Parse query parameters
+        from urllib.parse import urlparse, parse_qs
+        query = parse_qs(urlparse(self.path).query)
+        seconds = int(query.get('seconds', [60])[0])
+
+        history = self.telemetry_buffer.get_history(seconds)
+        body = json.dumps(history).encode()
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', len(body))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_telemetry_stats(self):
+        """Serve telemetry statistics"""
+        if not self.telemetry_buffer:
+            self.send_error(503, 'Telemetry buffer not available')
+            return
+
+        stats = self.telemetry_buffer.get_stats()
+        body = json.dumps(stats).encode()
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', len(body))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
 
 class HaLowBridge:
     """
@@ -192,6 +303,36 @@ class HaLowBridge:
                 buffer_size=config.VIDEO_BUFFER_SIZE
             )
 
+        # Telemetry buffer for dashboard
+        self.telemetry_buffer: Optional[TelemetryBuffer] = None
+        if config.DASHBOARD_ENABLED:
+            self.telemetry_buffer = TelemetryBuffer(max_samples=config.TELEMETRY_BUFFER_SIZE)
+            logger.info(f"Telemetry buffer initialized (size: {config.TELEMETRY_BUFFER_SIZE})")
+
+        # WebSocket server for dashboard
+        self.websocket_server: Optional[TelemetryWebSocketServer] = None
+        self.websocket_thread: Optional[threading.Thread] = None
+
+        # Storage for telemetry and video
+        self.telemetry_storage: Optional[TelemetryStorage] = None
+        self.video_recorder: Optional[VideoRecorder] = None
+        if config.STORAGE_ENABLED:
+            # Initialize telemetry storage
+            telemetry_path = os.path.join(config.STORAGE_BASE_PATH, 'telemetry')
+            self.telemetry_storage = TelemetryStorage(
+                base_path=telemetry_path,
+                retention_days=config.TELEMETRY_RETENTION_DAYS
+            )
+
+            # Initialize video recorder if video is enabled
+            if self.video_receiver:
+                video_path = os.path.join(config.STORAGE_BASE_PATH, 'video')
+                self.video_recorder = VideoRecorder(
+                    base_path=video_path,
+                    retention_days=config.VIDEO_RETENTION_DAYS,
+                    rotation_minutes=config.VIDEO_ROTATION_MINUTES
+                )
+
         # Socket.IO client to connect to serpent_backend
         self.sio = socketio.Client(reconnection=True, reconnection_delay=2)
         self.backend_connected = False
@@ -201,6 +342,7 @@ class HaLowBridge:
         self.running = False
         self.last_robot_estop_state: Optional[bool] = None
         self.last_rtt_ms = 0
+        self.last_controller_update = 0.0
 
         # Heartbeat state
         self.last_ping_time = 0
@@ -361,12 +503,41 @@ class HaLowBridge:
         # Include RTT in telemetry for backend
         telemetry['rtt_ms'] = self.last_rtt_ms
 
-        # Forward telemetry to backend via Socket.IO
+        # Add to telemetry buffer
+        if self.telemetry_buffer:
+            self.telemetry_buffer.add_sample(telemetry)
+
+        # Broadcast to WebSocket clients (dashboard)
+        if self.websocket_server:
+            self.websocket_server.broadcast_telemetry_sync(telemetry)
+
+        # Store telemetry to database
+        if self.telemetry_storage:
+            self.telemetry_storage.write_telemetry(telemetry)
+
+        # Forward full telemetry to backend via Socket.IO
         if self.backend_connected:
             try:
                 self.sio.emit('telemetry', telemetry)
             except Exception as e:
                 logger.error(f"Failed to forward telemetry: {e}")
+
+        # Rate-limited controller telemetry (1 Hz)
+        now = time.time()
+        if should_send_update(self.last_controller_update, config.CONTROLLER_TELEMETRY_RATE_HZ):
+            controller_data = format_for_controller(telemetry)
+            if self.backend_connected:
+                try:
+                    self.sio.emit('controller_telemetry', controller_data)
+                    logger.debug(f"Sent controller telemetry: status={controller_data.get('status')}, "
+                                f"voltage={controller_data.get('voltage')}V, "
+                                f"altitude={controller_data.get('altitude')}m, "
+                                f"rtt={controller_data.get('rtt_ms')}ms")
+                except Exception as e:
+                    logger.error(f"Failed to send controller telemetry: {e}")
+            else:
+                logger.debug("Controller telemetry not sent - backend disconnected")
+            self.last_controller_update = now
 
     def _heartbeat_loop(self):
         """Send periodic pings to Robot Pi for RTT measurement"""
@@ -389,10 +560,10 @@ class HaLowBridge:
     def _start_video_http_server(self):
         """Start the Video HTTP server in a background thread"""
         try:
-            # Create handler with video_receiver bound
-            handler = partial(VideoHTTPHandler, self.video_receiver)
+            # Create handler with video_receiver and telemetry_buffer bound
+            handler = partial(VideoHTTPHandler, self.video_receiver, self.telemetry_buffer)
 
-            self.http_server = ThreadingHTTPServer(('0.0.0.0', config.VIDEO_HTTP_PORT), handler)
+            self.http_server = HTTPServer(('0.0.0.0', config.VIDEO_HTTP_PORT), handler)
             self.http_thread = threading.Thread(
                 target=self.http_server.serve_forever,
                 daemon=True
@@ -402,6 +573,8 @@ class HaLowBridge:
             logger.info(f"  MJPEG stream: http://localhost:{config.VIDEO_HTTP_PORT}/video")
             logger.info(f"  Single frame: http://localhost:{config.VIDEO_HTTP_PORT}/frame")
             logger.info(f"  Health check: http://localhost:{config.VIDEO_HTTP_PORT}/health")
+            if config.DASHBOARD_ENABLED:
+                logger.info(f"  Dashboard: http://localhost:{config.VIDEO_HTTP_PORT}/dashboard")
         except Exception as e:
             logger.error(f"Failed to start Video HTTP server: {e}")
 
@@ -418,8 +591,30 @@ class HaLowBridge:
         if self.video_receiver:
             self.video_receiver.start()
 
+        # Start telemetry storage
+        if self.telemetry_storage:
+            self.telemetry_storage.start()
+
+        # Start video recorder
+        if self.video_recorder and self.video_receiver:
+            self.video_recorder.start_recording(self.video_receiver)
+
+        # Start WebSocket server for dashboard
+        if config.DASHBOARD_ENABLED and self.telemetry_buffer:
+            self.websocket_server = TelemetryWebSocketServer(
+                port=config.DASHBOARD_WS_PORT,
+                buffer=self.telemetry_buffer
+            )
+            self.websocket_thread = threading.Thread(
+                target=run_websocket_server,
+                args=(self.websocket_server,),
+                daemon=True
+            )
+            self.websocket_thread.start()
+            logger.info(f"WebSocket server starting on port {config.DASHBOARD_WS_PORT}")
+
         # Start Video HTTP server for MJPEG streaming
-        if config.VIDEO_HTTP_ENABLED and self.video_receiver:
+        if config.VIDEO_HTTP_ENABLED:
             self._start_video_http_server()
 
         # Start heartbeat thread
@@ -502,6 +697,13 @@ class HaLowBridge:
                 self.sio.disconnect()
             except:
                 pass
+
+        # Stop storage
+        if self.telemetry_storage:
+            self.telemetry_storage.stop()
+
+        if self.video_recorder:
+            self.video_recorder.stop_recording()
 
         # Stop Video HTTP server
         if self.http_server:
