@@ -27,7 +27,7 @@ import subprocess
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-import config
+from robot_pi import config
 
 logger = logging.getLogger(__name__)
 

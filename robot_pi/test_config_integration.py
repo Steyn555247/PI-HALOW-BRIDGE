@@ -14,7 +14,7 @@ os.environ['SIM_MODE'] = 'true'
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import config
+from robot_pi import config
 from sensor_reader import SensorReader
 
 def test_config_integration():

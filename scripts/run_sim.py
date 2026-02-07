@@ -82,7 +82,7 @@ class SimRunner:
         env = self._make_env()
 
         proc = subprocess.Popen(
-            [sys.executable, 'robot_pi/halow_bridge.py'],
+            [sys.executable, '-m', 'robot_pi.core.bridge_coordinator'],
             env=env,
             cwd=str(PROJECT_ROOT),
         )
@@ -96,7 +96,7 @@ class SimRunner:
         env = self._make_env()
 
         proc = subprocess.Popen(
-            [sys.executable, 'base_pi/halow_bridge.py'],
+            [sys.executable, '-m', 'base_pi.core.bridge_coordinator'],
             env=env,
             cwd=str(PROJECT_ROOT),
         )

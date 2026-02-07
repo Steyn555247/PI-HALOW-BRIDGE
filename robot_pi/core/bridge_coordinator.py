@@ -30,10 +30,10 @@ from typing import Optional
 # Add parent to path for common imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-import config
-from video_capture import VideoCapture
-from sensor_reader import SensorReader
-from actuator_controller import ActuatorController
+from robot_pi import config
+from robot_pi.video_capture import VideoCapture
+from robot_pi.sensor_reader import SensorReader
+from robot_pi.actuator_controller import ActuatorController
 from common.framing import SecureFramer
 from common.constants import ESTOP_REASON_INTERNAL_ERROR
 from common.logging_config import setup_logging
