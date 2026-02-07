@@ -10,7 +10,7 @@ StartLimitBurst=5
 [Service]
 Type=simple
 User=serpentbase
-WorkingDirectory=/home/serpentbase/PI-HALOW-BRIDGE/base_pi
+WorkingDirectory=/home/serpentbase/PI-HALOW-BRIDGE
 RuntimeDirectory=serpent
 
 # Core configuration
