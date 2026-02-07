@@ -10,7 +10,7 @@ PHASE 6 OPTIMIZATION:
 - Reduces total read time from IMU_time + Baro_time to max(IMU_time, Baro_time)
 
 MULTIPLEXER SUPPORT:
-- PCA9548/TCA9548A I2C multiplexer for multi-sensor configurations
+- TCA9548A I2C multiplexer for multi-sensor configurations
 - Automatically switches channels before reading each sensor
 - Gracefully handles missing multiplexer hardware
 
@@ -18,6 +18,10 @@ CURRENT SENSOR SUPPORT:
 - INA228 high-side current/voltage/power monitors
 - Supports battery, system, and servo power monitoring
 - Parallel reads with other sensors for efficiency
+
+SENSOR HARDWARE:
+- BNO055 IMU at 0x28 on multiplexer channel 1
+- BMP581 barometer at 0x47 on multiplexer channel 0
 """
 import logging
 import math
@@ -33,7 +37,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 # Check SIM_MODE first
 SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
 
-BNO08X_AVAILABLE = False
+BNO055_AVAILABLE = False
+BMP5XX_AVAILABLE = False
 TCA9548A_AVAILABLE = False
 SMBUS2_AVAILABLE = False
 
@@ -41,10 +46,15 @@ if not SIM_MODE:
     try:
         import board
         import busio
-        from adafruit_bno08x import BNO08X_I2C
-        from adafruit_bno08x.i2c import BNO08X_I2C
-        import adafruit_bmp3xx
-        BNO08X_AVAILABLE = True
+        from adafruit_bno055 import BNO055_I2C
+        BNO055_AVAILABLE = True
+    except ImportError:
+        pass
+
+    try:
+        import adafruit_bmp5xx
+        from adafruit_bus_device.i2c_device import I2CDevice
+        BMP5XX_AVAILABLE = True
     except ImportError:
         pass
 
@@ -61,8 +71,10 @@ if not SIM_MODE:
         pass
 
 logger = logging.getLogger(__name__)
-if not BNO08X_AVAILABLE and not SIM_MODE:
-    logger.warning("BNO08X/BMP3XX libraries not available, using mock sensors")
+if not BNO055_AVAILABLE and not SIM_MODE:
+    logger.warning("BNO055 library not available, using mock IMU")
+if not BMP5XX_AVAILABLE and not SIM_MODE:
+    logger.warning("BMP5XX library not available, using mock barometer")
 if not TCA9548A_AVAILABLE and not SIM_MODE:
     logger.warning("TCA9548A library not available, multiplexer support disabled")
 if not SMBUS2_AVAILABLE and not SIM_MODE:
@@ -70,15 +82,15 @@ if not SMBUS2_AVAILABLE and not SIM_MODE:
 
 
 class SensorReader:
-    """Reads BNO085 IMU, BMP388 barometer, and INA228 current sensors via I2C"""
+    """Reads BNO055 IMU, BMP581 barometer, and INA228 current sensors via I2C"""
 
-    def __init__(self, i2c_bus: int = 1, bno085_addr: int = 0x4A, bmp388_addr: int = 0x77,
-                 read_interval: float = 0.1, use_multiplexer: bool = False,
-                 mux_addr: int = 0x70, imu_channel: int = 0, baro_channel: int = 1,
+    def __init__(self, i2c_bus: int = 1, bno055_addr: int = 0x28, bmp581_addr: int = 0x47,
+                 read_interval: float = 0.1, use_multiplexer: bool = True,
+                 mux_addr: int = 0x70, imu_channel: int = 1, baro_channel: int = 0,
                  current_sensors: Optional[Dict] = None):
         self.i2c_bus = i2c_bus
-        self.bno085_addr = bno085_addr
-        self.bmp388_addr = bmp388_addr
+        self.bno055_addr = bno055_addr
+        self.bmp581_addr = bmp581_addr
         self.read_interval = read_interval
 
         # Multiplexer configuration
@@ -91,8 +103,8 @@ class SensorReader:
         self.current_sensors = current_sensors or {}
 
         # Hardware objects
-        self.bno085 = None
-        self.bmp388 = None
+        self.bno055 = None
+        self.bmp581 = None
         self.i2c = None
         self.multiplexer = None
         self.smbus = None
@@ -118,7 +130,7 @@ class SensorReader:
     def start(self):
         """Initialize sensors and start reading"""
         try:
-            if BNO08X_AVAILABLE:
+            if BNO055_AVAILABLE or BMP5XX_AVAILABLE:
                 # Initialize I2C
                 self.i2c = busio.I2C(board.SCL, board.SDA, frequency=400000)
 
@@ -134,35 +146,46 @@ class SensorReader:
                 elif self.use_multiplexer and not TCA9548A_AVAILABLE:
                     logger.warning("Multiplexer requested but library not available, continuing without multiplexer")
 
-                # Initialize BNO085
-                try:
-                    if self.multiplexer:
-                        logger.debug(f"Switching to IMU channel {self.imu_channel}")
-                        # Access the multiplexer channel (this automatically switches)
-                        channel = self.multiplexer[self.imu_channel]
+                # Initialize BNO055
+                if BNO055_AVAILABLE:
+                    try:
+                        if self.multiplexer:
+                            logger.debug(f"Switching to IMU channel {self.imu_channel}")
+                            # Access the multiplexer channel (this automatically switches)
+                            channel_i2c = self.multiplexer[self.imu_channel]
+                            # Initialize in NDOF mode (9-DOF fusion with fast magnetometer calibration)
+                            from adafruit_bno055 import NDOF_MODE
+                            self.bno055 = BNO055_I2C(channel_i2c, address=self.bno055_addr)
+                            time.sleep(0.1)  # Give sensor time to initialize
+                            self.bno055.mode = NDOF_MODE
+                        else:
+                            from adafruit_bno055 import NDOF_MODE
+                            self.bno055 = BNO055_I2C(self.i2c, address=self.bno055_addr)
+                            time.sleep(0.1)  # Give sensor time to initialize
+                            self.bno055.mode = NDOF_MODE
 
-                    self.bno085 = BNO08X_I2C(self.i2c, address=self.bno085_addr)
-                    self.bno085.enable_feature(0x05)  # Rotation vector
-                    self.bno085.enable_feature(0x01)  # Accelerometer
-                    self.bno085.enable_feature(0x02)  # Gyroscope
-                    logger.info(f"BNO085 initialized at 0x{self.bno085_addr:02X}")
-                except Exception as e:
-                    logger.error(f"Failed to initialize BNO085: {e}")
-                    self.bno085 = None
+                        logger.info(f"BNO055 initialized at 0x{self.bno055_addr:02X} on channel {self.imu_channel} in NDOF mode")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize BNO055: {e}")
+                        self.bno055 = None
 
-                # Initialize BMP388
-                try:
-                    if self.multiplexer:
-                        logger.debug(f"Switching to barometer channel {self.baro_channel}")
-                        channel = self.multiplexer[self.baro_channel]
+                # Initialize BMP581
+                if BMP5XX_AVAILABLE:
+                    try:
+                        if self.multiplexer:
+                            logger.debug(f"Switching to barometer channel {self.baro_channel}")
+                            channel_i2c = self.multiplexer[self.baro_channel]
+                            # BMP5XX requires I2CDevice wrapper
+                            i2c_device = I2CDevice(channel_i2c, self.bmp581_addr)
+                            self.bmp581 = adafruit_bmp5xx.BMP5XX(i2c_device)
+                        else:
+                            i2c_device = I2CDevice(self.i2c, self.bmp581_addr)
+                            self.bmp581 = adafruit_bmp5xx.BMP5XX(i2c_device)
 
-                    self.bmp388 = adafruit_bmp3xx.BMP3XX_I2C(self.i2c, address=self.bmp388_addr)
-                    self.bmp388.pressure_oversampling = 8
-                    self.bmp388.temperature_oversampling = 2
-                    logger.info(f"BMP388 initialized at 0x{self.bmp388_addr:02X}")
-                except Exception as e:
-                    logger.error(f"Failed to initialize BMP388: {e}")
-                    self.bmp388 = None
+                        logger.info(f"BMP581 initialized at 0x{self.bmp581_addr:02X} on channel {self.baro_channel}")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize BMP581: {e}")
+                        self.bmp581 = None
             else:
                 logger.warning("Sensor libraries not available, running in mock mode")
 
@@ -284,25 +307,38 @@ class SensorReader:
             }
 
     def _read_imu(self) -> Optional[Dict[str, float]]:
-        """Read IMU data (called in parallel)"""
+        """Read IMU data from BNO055 (called in parallel)"""
         try:
-            if self.bno085:
-                # Switch to IMU channel if using multiplexer
-                if self.multiplexer:
-                    self._switch_mux_channel(self.imu_channel)
+            if self.bno055:
+                # BNO055 provides quaternion directly
+                quat = self.bno055.quaternion
+                if quat is None or len(quat) != 4:
+                    # Fallback to mock data if quaternion not available
+                    quat = (1.0, 0.0, 0.0, 0.0)
 
-                quat_i, quat_j, quat_k, quat_real = self.bno085.quaternion
-                accel_x, accel_y, accel_z = self.bno085.acceleration
-                gyro_x, gyro_y, gyro_z = self.bno085.gyro
+                # BNO055 quaternion format: (w, x, y, z)
+                quat_w, quat_x, quat_y, quat_z = quat
+
+                # Get linear acceleration (m/s²)
+                accel = self.bno055.linear_acceleration
+                if accel is None or len(accel) != 3:
+                    accel = (0.0, 0.0, 9.81)
+                accel_x, accel_y, accel_z = accel
+
+                # Get gyroscope (rad/s)
+                gyro = self.bno055.gyro
+                if gyro is None or len(gyro) != 3:
+                    gyro = (0.0, 0.0, 0.0)
+                gyro_x, gyro_y, gyro_z = gyro
 
                 return {
-                    'quat_w': quat_real or 1.0,
-                    'quat_x': quat_i or 0.0,
-                    'quat_y': quat_j or 0.0,
-                    'quat_z': quat_k or 0.0,
+                    'quat_w': quat_w or 1.0,
+                    'quat_x': quat_x or 0.0,
+                    'quat_y': quat_y or 0.0,
+                    'quat_z': quat_z or 0.0,
                     'accel_x': accel_x or 0.0,
                     'accel_y': accel_y or 0.0,
-                    'accel_z': accel_z or 9.8,
+                    'accel_z': accel_z or 9.81,
                     'gyro_x': gyro_x or 0.0,
                     'gyro_y': gyro_y or 0.0,
                     'gyro_z': gyro_z or 0.0
@@ -320,24 +356,24 @@ class SensorReader:
                     'gyro_z': 0.001 * math.sin(t * 0.9)
                 }
         except Exception as e:
-            logger.error(f"Error reading IMU: {e}")
+            logger.error(f"Error reading BNO055 IMU: {e}")
             return None
 
     def _read_barometer(self) -> Optional[Dict[str, float]]:
-        """Read barometer data (called in parallel)"""
+        """Read barometer data from BMP581 (called in parallel)"""
         try:
-            if self.bmp388:
-                # Switch to barometer channel if using multiplexer
-                if self.multiplexer:
-                    self._switch_mux_channel(self.baro_channel)
-
-                pressure = self.bmp388.pressure
-                temperature = self.bmp388.temperature
-                altitude = self.bmp388.altitude
+            if self.bmp581:
+                # Read pressure in hPa
+                pressure = self.bmp581.pressure
+                # Read temperature in Celsius
+                temperature = self.bmp581.temperature
+                # Calculate altitude from pressure (standard atmosphere)
+                # altitude = 44330 * (1 - (pressure/1013.25)^0.1903)
+                altitude = 44330.0 * (1.0 - (pressure / 1013.25) ** 0.1903) if pressure else 0.0
 
                 return {
-                    'pressure': pressure,
-                    'temperature': temperature,
+                    'pressure': pressure or 1013.25,
+                    'temperature': temperature or 25.0,
                     'altitude': altitude
                 }
             else:
@@ -349,7 +385,7 @@ class SensorReader:
                     'altitude': 100.0 + 0.1 * math.sin(t * 0.2)
                 }
         except Exception as e:
-            logger.error(f"Error reading barometer: {e}")
+            logger.error(f"Error reading BMP581 barometer: {e}")
             return None
 
     def _read_loop(self):

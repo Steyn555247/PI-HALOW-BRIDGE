@@ -23,6 +23,40 @@ _status_cache = None
 _cache_timestamp = 0
 
 
+def _transform_imu_data(imu_data: Dict) -> Dict:
+    """
+    Transform IMU data from flat format to nested format expected by dashboard.
+
+    Input format:
+        {'accel_x': ..., 'accel_y': ..., 'accel_z': ...,
+         'gyro_x': ..., 'gyro_y': ..., 'gyro_z': ...,
+         'quat_w': ..., 'quat_x': ..., 'quat_y': ..., 'quat_z': ...}
+
+    Output format:
+        {'accel': {'x': ..., 'y': ..., 'z': ...},
+         'gyro': {'x': ..., 'y': ..., 'z': ...},
+         'quaternion': {'w': ..., 'x': ..., 'y': ..., 'z': ...}}
+    """
+    return {
+        'accel': {
+            'x': imu_data.get('accel_x', 0.0),
+            'y': imu_data.get('accel_y', 0.0),
+            'z': imu_data.get('accel_z', 0.0)
+        },
+        'gyro': {
+            'x': imu_data.get('gyro_x', 0.0),
+            'y': imu_data.get('gyro_y', 0.0),
+            'z': imu_data.get('gyro_z', 0.0)
+        },
+        'quaternion': {
+            'w': imu_data.get('quat_w', 1.0),
+            'x': imu_data.get('quat_x', 0.0),
+            'y': imu_data.get('quat_y', 0.0),
+            'z': imu_data.get('quat_z', 0.0)
+        }
+    }
+
+
 def get_aggregated_status() -> Dict:
     """
     Get unified system status from all available sources.
@@ -102,6 +136,12 @@ def _collect_robot_status() -> Dict:
             'uptime_s': log_status.get('uptime_s', 0),
             'psk_valid': log_status.get('psk_valid', False),
         }
+
+        # Extract sensor data from logs
+        if 'imu' in log_status:
+            status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
+        if 'barometer' in log_status:
+            status['sensors']['barometer'] = log_status['barometer']
     else:
         # No recent logs - service may be down
         status['connections'] = {
@@ -248,15 +288,8 @@ def _add_direct_robot_data(status: Dict):
         except Exception as e:
             logger.warning(f"Failed to get actuator data: {e}")
 
-        # Try importing sensor_reader for IMU/barometer
-        try:
-            from robot_pi import sensor_reader
-            sensor_data = sensor_reader.get_all_data()
-            status['sensors'] = sensor_data
-        except ImportError as e:
-            logger.debug(f"Cannot import sensor_reader: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to get sensor data: {e}")
+        # Note: Sensor data is extracted from logs in _collect_robot_status()
+        # not here, to avoid conflicts with the bridge's sensor reader
 
     except Exception as e:
         logger.warning(f"Direct inspection failed: {e}")

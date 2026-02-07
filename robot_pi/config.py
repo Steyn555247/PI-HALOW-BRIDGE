@@ -49,15 +49,17 @@ CAMERA_DEVICES = [
 
 # Sensor Configuration (I2C)
 I2C_BUS = int(os.getenv('I2C_BUS', '1'))
-BNO085_ADDRESS = int(os.getenv('BNO085_ADDRESS', '0x4A'), 16)
-BMP388_ADDRESS = int(os.getenv('BMP388_ADDRESS', '0x77'), 16)
+# BNO055 IMU at address 0x28 on multiplexer channel 1
+BNO055_ADDRESS = int(os.getenv('BNO055_ADDRESS', '0x28'), 16)
+# BMP581 barometer at address 0x47 on multiplexer channel 0
+BMP581_ADDRESS = int(os.getenv('BMP581_ADDRESS', '0x47'), 16)
 SENSOR_READ_INTERVAL = float(os.getenv('SENSOR_READ_INTERVAL', '0.1'))  # 100ms
 
-# I2C Multiplexer Configuration (PCA9548 - for multi-sensor support)
-USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'false').lower() == 'true'
+# I2C Multiplexer Configuration (TCA9548A - REQUIRED for sensor access)
+USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'true').lower() == 'true'
 I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
-IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '0'))
-BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '1'))
+IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '1'))  # BNO055 on channel 1
+BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '0'))  # BMP581 on channel 0
 
 # Current Sensor Configuration (INA228 - for power monitoring)
 # Battery current sensor

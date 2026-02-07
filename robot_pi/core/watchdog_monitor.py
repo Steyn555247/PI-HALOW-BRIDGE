@@ -110,12 +110,13 @@ class WatchdogMonitor:
                     f"No control for {control_age:.1f}s"
                 )
 
-    def log_status(self, telemetry_connected: bool):
+    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None):
         """
         Log status periodically.
 
         Args:
             telemetry_connected: Whether telemetry connection is active
+            sensor_data: Optional sensor data (IMU, barometer) to include in status
         """
         now = time.time()
 
@@ -136,6 +137,14 @@ class WatchdogMonitor:
                 "psk_valid": self.framer.is_authenticated(),
                 "watchdog_disabled": self.watchdog_disabled
             }
+
+            # Add sensor data if available
+            if sensor_data:
+                if 'imu' in sensor_data:
+                    status['imu'] = sensor_data['imu']
+                if 'barometer' in sensor_data:
+                    status['barometer'] = sensor_data['barometer']
+
             logger.info(json.dumps(status))
             self.last_status_log = now
 

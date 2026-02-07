@@ -96,8 +96,8 @@ class HaLowBridge:
 
         self.sensor_reader = SensorReader(
             i2c_bus=config.I2C_BUS,
-            bno085_addr=config.BNO085_ADDRESS,
-            bmp388_addr=config.BMP388_ADDRESS,
+            bno055_addr=config.BNO055_ADDRESS,
+            bmp581_addr=config.BMP581_ADDRESS,
             read_interval=config.SENSOR_READ_INTERVAL,
             use_multiplexer=config.USE_I2C_MULTIPLEXER,
             mux_addr=config.I2C_MUX_ADDRESS,
@@ -340,9 +340,11 @@ class HaLowBridge:
                     telemetry_connected=self.telemetry_sender.is_connected()
                 )
 
-                # Log status periodically
+                # Log status periodically (include sensor data for dashboard)
+                sensor_data = self.sensor_reader.get_all_data()
                 self.watchdog_monitor.log_status(
-                    telemetry_connected=self.telemetry_sender.is_connected()
+                    telemetry_connected=self.telemetry_sender.is_connected(),
+                    sensor_data=sensor_data
                 )
 
             except Exception as e:
