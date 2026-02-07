@@ -8,19 +8,25 @@ cd /path/to/PI-HALOW-BRIDGE
 # Pull the latest changes
 git pull origin main
 
-# Install sensor libraries in venv (if not already done)
+# 1. CRITICAL: Setup PSK (Pre-Shared Key) for authentication
+./setup_psk_on_hub.sh
+
+# 2. Install sensor libraries in venv (if not already done)
 source venv/bin/activate
 pip install adafruit-circuitpython-bno055 adafruit-circuitpython-bmp5xx adafruit-circuitpython-tca9548a
 
-# Restart Base Pi bridge service
-sudo systemctl restart serpent-base-bridge
+# 3. Services will already be restarted by setup_psk_on_hub.sh
+# But if needed, you can restart manually:
+# sudo systemctl restart serpent-base-bridge
+# sudo systemctl restart serpent-dashboard-base
 
-# Restart Base Pi dashboard
-sudo systemctl restart serpent-dashboard-base
-
-# Check services are running
+# 4. Check services are running
 sudo systemctl status serpent-base-bridge --no-pager | head -15
 sudo systemctl status serpent-dashboard-base --no-pager | head -15
+
+# 5. Verify PSK is loaded
+sudo journalctl -u serpent-base-bridge -n 20 | grep 'PSK'
+# Should see: "[base_pi] PSK loaded successfully"
 ```
 
 ## Verify Sensor Data
