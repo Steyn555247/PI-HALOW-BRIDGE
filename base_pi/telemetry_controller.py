@@ -6,7 +6,7 @@ Prepare condensed telemetry for TrimUI controller (rate-limited).
 
 import time
 from typing import Dict, Any, List
-from telemetry_metrics import quaternion_to_euler, check_thresholds
+from base_pi.telemetry_metrics import quaternion_to_euler, check_thresholds
 
 
 def format_for_controller(telemetry: Dict[str, Any]) -> Dict[str, Any]:

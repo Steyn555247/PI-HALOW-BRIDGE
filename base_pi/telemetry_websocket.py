@@ -12,8 +12,8 @@ from typing import Set, Optional
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-from telemetry_buffer import TelemetryBuffer
-from telemetry_metrics import add_derived_metrics
+from base_pi.telemetry_buffer import TelemetryBuffer
+from base_pi.telemetry_metrics import add_derived_metrics
 
 
 logger = logging.getLogger(__name__)
