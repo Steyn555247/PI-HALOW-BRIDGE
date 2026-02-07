@@ -14,11 +14,11 @@ User=serpentbase
 # Groups required for hardware access (I2C, GPIO, video)
 SupplementaryGroups=i2c gpio video
 
-WorkingDirectory=/home/pi/serpent/pi_halow_bridge/robot_pi
+WorkingDirectory=/home/serpentbase/PI-HALOW-BRIDGE/robot_pi
 RuntimeDirectory=serpent
 
 # Core configuration
-Environment="BASE_PI_IP=192.168.100.1"
+Environment="BASE_PI_IP=192.168.1.1"
 Environment="CONTROL_PORT=5001"
 Environment="VIDEO_PORT=5002"
 Environment="TELEMETRY_PORT=5003"
@@ -27,7 +27,7 @@ Environment="LOG_LEVEL=INFO"
 # PSK must be set via drop-in override or EnvironmentFile
 # Environment="SERPENT_PSK_HEX=<64-char-hex-key>"
 
-ExecStart=/home/pi/serpent/pi_halow_bridge/venv/bin/python3 /home/pi/serpent/pi_halow_bridge/robot_pi/halow_bridge.py
+ExecStart=/home/serpentbase/PI-HALOW-BRIDGE/venv/bin/python3 -m robot_pi.core.bridge_coordinator
 
 # SAFETY: Always restart - robot defaults to E-STOP if service not running
 Restart=always

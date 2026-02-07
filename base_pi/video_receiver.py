@@ -98,7 +98,15 @@ class VideoReceiver:
                     try:
                         logger.info("Waiting for Robot Pi video connection...")
                         self.client_socket, addr = self.server_socket.accept()
-                        self.client_socket.settimeout(5.0)
+
+                        # TCP optimizations for video streaming
+                        self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                        self.client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                        self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+                        self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)
+                        self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+
+                        self.client_socket.settimeout(3.0)
                         self.connected = True
                         logger.info(f"Robot Pi video connected from {addr}")
                     except socket.timeout:

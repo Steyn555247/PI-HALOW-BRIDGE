@@ -17,8 +17,16 @@ from common.constants import (
 # Simulation mode - enables testing without hardware
 SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
 
-# Network Configuration
-ROBOT_PI_IP = os.getenv('ROBOT_PI_IP', '192.168.100.2')
+# ============================================================================
+# NETWORK CONFIGURATION - VERIFY FOR YOUR DEPLOYMENT
+# ============================================================================
+# Current configuration uses 192.168.1.x subnet (matching dashboard)
+# If you experience connection issues, verify your actual network subnet:
+#   - Check with: ip addr show
+#   - Update ROBOT_PI_IP if needed
+#   - Git history shows subnet was changed from 192.168.100.x to 192.168.1.x
+# ============================================================================
+ROBOT_PI_IP = os.getenv('ROBOT_PI_IP', '192.168.1.2')
 CONTROL_PORT = int(os.getenv('CONTROL_PORT', str(DEFAULT_CONTROL_PORT)))
 VIDEO_PORT = int(os.getenv('VIDEO_PORT', str(DEFAULT_VIDEO_PORT)))
 TELEMETRY_PORT = int(os.getenv('TELEMETRY_PORT', str(DEFAULT_TELEMETRY_PORT)))
@@ -47,3 +55,18 @@ LOG_FILE = os.getenv('LOG_FILE', '/var/log/serpent/base_pi_bridge.log')
 # Camera Configuration
 NUM_CAMERAS = int(os.getenv('NUM_CAMERAS', '3'))
 DEFAULT_CAMERA_ID = int(os.getenv('DEFAULT_CAMERA_ID', '0'))
+
+# Dashboard Configuration
+DASHBOARD_ENABLED = os.getenv('DASHBOARD_ENABLED', 'true').lower() == 'true'
+DASHBOARD_WS_PORT = int(os.getenv('DASHBOARD_WS_PORT', '5005'))
+TELEMETRY_BUFFER_SIZE = int(os.getenv('TELEMETRY_BUFFER_SIZE', '600'))
+
+# Storage Configuration (SSD)
+STORAGE_ENABLED = os.getenv('STORAGE_ENABLED', 'false').lower() == 'true'
+STORAGE_BASE_PATH = os.getenv('STORAGE_BASE_PATH', '/mnt/ssd/serpent_data')
+TELEMETRY_RETENTION_DAYS = int(os.getenv('TELEMETRY_RETENTION_DAYS', '30'))
+VIDEO_RETENTION_DAYS = int(os.getenv('VIDEO_RETENTION_DAYS', '7'))
+VIDEO_ROTATION_MINUTES = int(os.getenv('VIDEO_ROTATION_MINUTES', '10'))
+
+# Controller telemetry rate
+CONTROLLER_TELEMETRY_RATE_HZ = float(os.getenv('CONTROLLER_TELEM_RATE', '1.0'))
