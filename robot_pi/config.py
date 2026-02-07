@@ -27,7 +27,7 @@ SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
 #   - Update BASE_PI_IP if needed
 #   - Git history shows subnet was changed from 192.168.100.x to 192.168.1.x
 # ============================================================================
-BASE_PI_IP = os.getenv('BASE_PI_IP', '192.168.1.1')
+BASE_PI_IP = os.getenv('BASE_PI_IP', '192.168.1.10')
 CONTROL_PORT = int(os.getenv('CONTROL_PORT', str(DEFAULT_CONTROL_PORT)))
 VIDEO_PORT = int(os.getenv('VIDEO_PORT', str(DEFAULT_VIDEO_PORT)))
 TELEMETRY_PORT = int(os.getenv('TELEMETRY_PORT', str(DEFAULT_TELEMETRY_PORT)))
