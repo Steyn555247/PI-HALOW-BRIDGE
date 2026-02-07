@@ -73,7 +73,9 @@ def _collect_robot_status() -> Dict:
         'health': {}
     }
 
-    # 1. Parse logs for connection status
+    # 1. Parse logs for connection and E-STOP status
+    # Logs from the bridge service are the source of truth for connection
+    # and E-STOP state - they reflect the actual bridge process state.
     log_status = log_parser.get_latest_status_event(config.ROBOT_BRIDGE_SERVICE)
 
     if log_status:
@@ -82,8 +84,15 @@ def _collect_robot_status() -> Dict:
             'control_established': log_status.get('control_established', False),
             'control_age_ms': log_status.get('control_age_ms', 0),
             'telemetry': 'connected' if log_status.get('telemetry_connected') else 'disconnected',
+            # Robot bridge doesn't track these, but include for UI consistency
+            'video': 'unknown',
+            'backend': 'unknown',
         }
 
+        # E-STOP from logs is authoritative - it reflects the actual bridge
+        # process state. Direct inspection creates a separate ActuatorController
+        # instance that does NOT share state with the bridge, so we must NOT
+        # override this from direct inspection.
         status['estop'] = {
             'engaged': log_status.get('estop_engaged', False),
             'reason': log_status.get('estop_reason', 'unknown'),
@@ -98,11 +107,13 @@ def _collect_robot_status() -> Dict:
         status['connections'] = {
             'control': 'unknown',
             'telemetry': 'unknown',
+            'video': 'unknown',
+            'backend': 'unknown',
         }
         status['estop'] = {'engaged': False, 'reason': 'unknown'}
         status['health'] = {'uptime_s': 0, 'psk_valid': False}
 
-    # 2. Direct inspection (optional)
+    # 2. Direct inspection (optional) - for non-safety data only
     if config.ENABLE_DIRECT_INSPECTION:
         _add_direct_robot_data(status)
 
@@ -133,7 +144,8 @@ def _collect_base_status() -> Dict:
     if log_status:
         # Handle different log formats (base vs robot bridge)
         if using_robot_logs:
-            # Robot bridge format
+            # Robot bridge log format: uses boolean fields for connections
+            # and estop_engaged/estop_reason for E-STOP state.
             status['connections'] = {
                 'backend': 'unknown',  # Robot bridge doesn't know about backend
                 'control': 'connected' if log_status.get('control_connected') else 'disconnected',
@@ -145,15 +157,16 @@ def _collect_base_status() -> Dict:
                 'reason': log_status.get('estop_reason', 'unknown'),
             }
         else:
-            # Base bridge format
+            # Base bridge log format: uses string fields for connections
+            # and robot_estop/robot_estop_reason for E-STOP state (forwarded from robot telemetry).
             status['connections'] = {
                 'backend': log_status.get('backend', 'unknown'),
                 'control': log_status.get('control', 'unknown'),
                 'telemetry': log_status.get('telemetry', 'unknown'),
                 'video': log_status.get('video', 'unknown'),
             }
-            # Try to get actual estop_reason from logs, fallback to generic message
-            estop_reason = log_status.get('estop_reason') or log_status.get('robot_estop_reason')
+            # E-STOP reason now logged by base bridge watchdog as 'robot_estop_reason'
+            estop_reason = log_status.get('robot_estop_reason')
             if not estop_reason:
                 estop_reason = 'forwarded from robot' if log_status.get('robot_estop', False) else 'unknown'
 
@@ -187,6 +200,16 @@ def _add_direct_robot_data(status: Dict):
     """
     Add real-time data from direct component inspection (Robot Pi).
     Gracefully falls back if imports fail.
+
+    IMPORTANT: This function must NOT override E-STOP status from logs.
+    The dashboard's ActuatorController instance is SEPARATE from the bridge's
+    ActuatorController. It does not share state with the bridge process.
+    Overriding E-STOP from direct inspection would show the dashboard's own
+    E-STOP state instead of the bridge's actual E-STOP state, causing
+    safety-critical inconsistencies between dashboards.
+
+    Only non-safety data (video stats, motor currents, sensor data) should
+    be added from direct inspection.
     """
     try:
         # Add project root to path
@@ -210,21 +233,15 @@ def _add_direct_robot_data(status: Dict):
         except Exception as e:
             logger.warning(f"Failed to get video stats: {e}")
 
-        # Try importing actuator_controller for motor/estop data
+        # Try importing actuator_controller for motor current data ONLY.
+        # DO NOT read E-STOP from this - the dashboard's ActuatorController
+        # is a separate instance from the bridge and does not share E-STOP state.
         try:
             from robot_pi import actuator_controller
-            estop_info = actuator_controller.get_estop_info()
             motor_currents = actuator_controller.get_motor_currents()
-
-            status['estop'].update({
-                'engaged': estop_info.get('engaged', False),
-                'reason': estop_info.get('reason', 'unknown'),
-                'age_s': estop_info.get('age_s', 0),
-            })
 
             status['actuators'] = {
                 'motor_currents': motor_currents,
-                'servo_position': actuator_controller.get_servo_position(),
             }
         except ImportError as e:
             logger.debug(f"Cannot import actuator_controller: {e}")

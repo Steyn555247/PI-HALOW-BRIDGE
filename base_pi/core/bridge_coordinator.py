@@ -200,9 +200,12 @@ class HaLowBridge:
 
     def _on_telemetry_received(self, telemetry: Dict[str, Any]):
         """Callback when telemetry is received from Robot Pi."""
-        # Extract E-STOP state
+        # Extract E-STOP state (both engaged flag and reason)
         estop_info = telemetry.get('estop', {})
-        self.state.update_estop_state(estop_info.get('engaged'))
+        self.state.update_estop_state(
+            estop_info.get('engaged'),
+            estop_info.get('reason')
+        )
 
         # Compute RTT from pong data if present
         pong = telemetry.get('pong')
@@ -341,7 +344,8 @@ class HaLowBridge:
                     telemetry_connected=self.telemetry_receiver.is_connected(),
                     video_connected=self.video_receiver.is_connected() if self.video_receiver else False,
                     robot_estop_state=self.state.get_estop_state(),
-                    psk_valid=self.framer.is_authenticated()
+                    psk_valid=self.framer.is_authenticated(),
+                    robot_estop_reason=self.state.get_estop_reason()
                 )
 
             except Exception as e:

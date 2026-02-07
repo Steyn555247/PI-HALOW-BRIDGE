@@ -35,6 +35,7 @@ class StateManager:
         self.active_camera_id = default_camera_id
         self.backend_connected = False
         self.last_robot_estop_state: Optional[bool] = None
+        self.last_robot_estop_reason: Optional[str] = None
         self.last_rtt_ms = 0
         self.last_controller_update = 0.0
 
@@ -68,20 +69,27 @@ class StateManager:
         """Get active camera ID."""
         return self.active_camera_id
 
-    def update_estop_state(self, engaged: Optional[bool]):
+    def update_estop_state(self, engaged: Optional[bool], reason: Optional[str] = None):
         """
         Update E-STOP state from Robot Pi telemetry.
 
         Args:
             engaged: E-STOP engaged state (True/False/None)
+            reason: E-STOP reason string from Robot Pi (e.g. 'boot_default', 'watchdog')
         """
         if engaged != self.last_robot_estop_state:
-            logger.info(f"Robot E-STOP state changed: {self.last_robot_estop_state} -> {engaged}")
+            logger.info(f"Robot E-STOP state changed: {self.last_robot_estop_state} -> {engaged} (reason: {reason})")
         self.last_robot_estop_state = engaged
+        if reason is not None:
+            self.last_robot_estop_reason = reason
 
     def get_estop_state(self) -> Optional[bool]:
         """Get last known E-STOP state from Robot Pi."""
         return self.last_robot_estop_state
+
+    def get_estop_reason(self) -> Optional[str]:
+        """Get last known E-STOP reason from Robot Pi."""
+        return self.last_robot_estop_reason
 
     def update_rtt(self, ping_seq: int, ping_ts: float) -> Optional[int]:
         """

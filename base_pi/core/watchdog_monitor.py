@@ -83,7 +83,8 @@ class WatchdogMonitor:
         telemetry_connected: bool,
         video_connected: bool,
         robot_estop_state: Optional[bool],
-        psk_valid: bool
+        psk_valid: bool,
+        robot_estop_reason: Optional[str] = None
     ):
         """
         Log periodic status for monitoring.
@@ -95,6 +96,7 @@ class WatchdogMonitor:
             video_connected: Video connection state
             robot_estop_state: Robot E-STOP state
             psk_valid: PSK validation state
+            robot_estop_reason: Robot E-STOP reason string (from telemetry)
         """
         now = time.time()
 
@@ -107,6 +109,7 @@ class WatchdogMonitor:
                 "telemetry": "connected" if telemetry_connected else "disconnected",
                 "video": "connected" if video_connected else "N/A",
                 "robot_estop": robot_estop_state,
+                "robot_estop_reason": robot_estop_reason,
                 "psk_valid": psk_valid
             }
             logger.info(json.dumps(status))
