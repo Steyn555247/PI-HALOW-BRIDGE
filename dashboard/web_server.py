@@ -218,24 +218,14 @@ def api_diagnostics_cameras():
 
 @app.route('/api/diagnostics/services')
 def api_diagnostics_services():
-    """Check status of all services"""
+    """Check status of services relevant to this Pi's role"""
     try:
         services = {}
 
-        # Check robot bridge
-        services['robot_bridge'] = diagnostics.check_service_status(
-            config.ROBOT_BRIDGE_SERVICE
-        )
-
-        # Check base bridge
-        services['base_bridge'] = diagnostics.check_service_status(
-            config.BASE_BRIDGE_SERVICE
-        )
-
-        # Check backend
-        services['backend'] = diagnostics.check_service_status(
-            config.BACKEND_SERVICE
-        )
+        for svc in config.ROLE_SERVICES.get(config.DASHBOARD_ROLE, []):
+            # Derive a short key from the service name
+            key = svc.replace('serpent-', '').replace('.service', '').replace('-', '_')
+            services[key] = diagnostics.check_service_status(svc)
 
         return jsonify({'services': services})
 

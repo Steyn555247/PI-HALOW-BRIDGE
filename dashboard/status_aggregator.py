@@ -100,6 +100,7 @@ def _collect_robot_status() -> Dict:
     """Collect status from Robot Pi bridge"""
     status = {
         'connections': {},
+        'data_flow': {},
         'sensors': {},
         'actuators': {},
         'video': {},
@@ -113,14 +114,43 @@ def _collect_robot_status() -> Dict:
     log_status = log_parser.get_latest_status_event(config.ROBOT_BRIDGE_SERVICE)
 
     if log_status:
+        control_connected = bool(log_status.get('control_connected'))
+        control_established = log_status.get('control_established', False)
+        control_age_ms = log_status.get('control_age_ms', 0)
+        telemetry_connected = bool(log_status.get('telemetry_connected'))
+
         status['connections'] = {
-            'control': 'connected' if log_status.get('control_connected') else 'disconnected',
-            'control_established': log_status.get('control_established', False),
-            'control_age_ms': log_status.get('control_age_ms', 0),
-            'telemetry': 'connected' if log_status.get('telemetry_connected') else 'disconnected',
-            # Robot bridge doesn't track these, but include for UI consistency
-            'video': 'unknown',
-            'backend': 'unknown',
+            'control': {
+                'state': 'connected' if control_connected else 'disconnected',
+                'established': control_established,
+                'age_ms': control_age_ms,
+            },
+            'telemetry': {
+                'state': 'connected' if telemetry_connected else 'disconnected',
+                'direction': 'tx',
+            },
+            'video': {
+                'state': 'unknown',
+                'direction': 'tx',
+            },
+        }
+
+        status['data_flow'] = {
+            'control_rx': {
+                'connected': control_connected,
+                'established': control_established,
+                'age_ms': control_age_ms,
+                'seq': log_status.get('control_seq', 0),
+            },
+            'telemetry_tx': {
+                'connected': telemetry_connected,
+            },
+            'video_tx': {
+                'connected': False,
+                'frames_sent': 0,
+                'frames_dropped': 0,
+                'drop_rate': 0.0,
+            },
         }
 
         # E-STOP from logs is authoritative - it reflects the actual bridge
@@ -135,6 +165,7 @@ def _collect_robot_status() -> Dict:
         status['health'] = {
             'uptime_s': log_status.get('uptime_s', 0),
             'psk_valid': log_status.get('psk_valid', False),
+            'watchdog_disabled': config.DISABLE_WATCHDOG_FOR_LOCAL_TESTING,
         }
 
         # Extract sensor data from logs
@@ -144,14 +175,23 @@ def _collect_robot_status() -> Dict:
             status['sensors']['barometer'] = log_status['barometer']
     else:
         # No recent logs - service may be down
+        _unknown = {'state': 'unknown'}
         status['connections'] = {
-            'control': 'unknown',
-            'telemetry': 'unknown',
-            'video': 'unknown',
-            'backend': 'unknown',
+            'control': {**_unknown, 'established': False, 'age_ms': 0},
+            'telemetry': {**_unknown, 'direction': 'tx'},
+            'video': {**_unknown, 'direction': 'tx'},
+        }
+        status['data_flow'] = {
+            'control_rx': {'connected': False, 'established': False, 'age_ms': 0, 'seq': 0},
+            'telemetry_tx': {'connected': False},
+            'video_tx': {'connected': False, 'frames_sent': 0, 'frames_dropped': 0, 'drop_rate': 0.0},
         }
         status['estop'] = {'engaged': False, 'reason': 'unknown'}
-        status['health'] = {'uptime_s': 0, 'psk_valid': False}
+        status['health'] = {
+            'uptime_s': 0,
+            'psk_valid': False,
+            'watchdog_disabled': config.DISABLE_WATCHDOG_FOR_LOCAL_TESTING,
+        }
 
     # 2. Direct inspection (optional) - for non-safety data only
     if config.ENABLE_DIRECT_INSPECTION:
@@ -164,6 +204,7 @@ def _collect_base_status() -> Dict:
     """Collect status from Base Pi bridge"""
     status = {
         'connections': {},
+        'data_flow': {},
         'sensors': {},
         'actuators': {},
         'video': {},
@@ -185,12 +226,27 @@ def _collect_base_status() -> Dict:
         # Handle different log formats (base vs robot bridge)
         if using_robot_logs:
             # Robot bridge log format: uses boolean fields for connections
-            # and estop_engaged/estop_reason for E-STOP state.
+            control_connected = bool(log_status.get('control_connected'))
+            telemetry_connected = bool(log_status.get('telemetry_connected'))
+
             status['connections'] = {
-                'backend': 'unknown',  # Robot bridge doesn't know about backend
-                'control': 'connected' if log_status.get('control_connected') else 'disconnected',
-                'telemetry': 'connected' if log_status.get('telemetry_connected') else 'disconnected',
-                'video': 'unknown',  # Video status not in robot logs
+                'control': {
+                    'state': 'connected' if control_connected else 'disconnected',
+                },
+                'telemetry': {
+                    'state': 'connected' if telemetry_connected else 'disconnected',
+                    'direction': 'rx',
+                },
+                'video': {
+                    'state': 'unknown',
+                    'direction': 'rx',
+                },
+                'backend': {'state': 'unknown'},
+            }
+            status['data_flow'] = {
+                'control_tx': {'connected': control_connected},
+                'telemetry_rx': {'connected': telemetry_connected, 'rtt_ms': 0},
+                'video_rx': {'connected': False},
             }
             status['estop'] = {
                 'engaged': log_status.get('estop_engaged', False),
@@ -198,12 +254,30 @@ def _collect_base_status() -> Dict:
             }
         else:
             # Base bridge log format: uses string fields for connections
-            # and robot_estop/robot_estop_reason for E-STOP state (forwarded from robot telemetry).
+            control_state = log_status.get('control', 'unknown')
+            telemetry_state = log_status.get('telemetry', 'unknown')
+            video_state = log_status.get('video', 'unknown')
+            backend_state = log_status.get('backend', 'unknown')
+
             status['connections'] = {
-                'backend': log_status.get('backend', 'unknown'),
-                'control': log_status.get('control', 'unknown'),
-                'telemetry': log_status.get('telemetry', 'unknown'),
-                'video': log_status.get('video', 'unknown'),
+                'control': {'state': control_state},
+                'telemetry': {
+                    'state': telemetry_state,
+                    'direction': 'rx',
+                },
+                'video': {
+                    'state': video_state,
+                    'direction': 'rx',
+                },
+                'backend': {'state': backend_state},
+            }
+            status['data_flow'] = {
+                'control_tx': {'connected': control_state == 'connected'},
+                'telemetry_rx': {
+                    'connected': telemetry_state == 'connected',
+                    'rtt_ms': log_status.get('rtt_ms', 0),
+                },
+                'video_rx': {'connected': video_state == 'connected'},
             }
             # E-STOP reason now logged by base bridge watchdog as 'robot_estop_reason'
             estop_reason = log_status.get('robot_estop_reason')
@@ -218,6 +292,7 @@ def _collect_base_status() -> Dict:
         status['health'] = {
             'psk_valid': log_status.get('psk_valid', False),
             'uptime_s': log_status.get('uptime_s', 0) if using_robot_logs else 0,
+            'watchdog_disabled': config.DISABLE_WATCHDOG_FOR_LOCAL_TESTING,
         }
 
         # Extract sensor data from logs (received via telemetry from Robot Pi)
@@ -226,14 +301,23 @@ def _collect_base_status() -> Dict:
         if 'barometer' in log_status:
             status['sensors']['barometer'] = log_status['barometer']
     else:
+        _unknown = {'state': 'unknown'}
         status['connections'] = {
-            'backend': 'unknown',
-            'control': 'unknown',
-            'telemetry': 'unknown',
-            'video': 'unknown',
+            'control': {**_unknown},
+            'telemetry': {**_unknown, 'direction': 'rx'},
+            'video': {**_unknown, 'direction': 'rx'},
+            'backend': {**_unknown},
+        }
+        status['data_flow'] = {
+            'control_tx': {'connected': False},
+            'telemetry_rx': {'connected': False, 'rtt_ms': 0},
+            'video_rx': {'connected': False},
         }
         status['estop'] = {'engaged': False, 'reason': 'unknown'}
-        status['health'] = {'psk_valid': False}
+        status['health'] = {
+            'psk_valid': False,
+            'watchdog_disabled': config.DISABLE_WATCHDOG_FOR_LOCAL_TESTING,
+        }
 
     # Direct inspection (optional)
     if config.ENABLE_DIRECT_INSPECTION:
@@ -267,12 +351,29 @@ def _add_direct_robot_data(status: Dict):
         try:
             from robot_pi import video_capture
             video_stats = video_capture.get_stats()
+            frames_sent = video_stats.get('frames_sent', 0)
+            frames_dropped = video_stats.get('frames_dropped', 0)
+            drop_rate = video_stats.get('drop_rate', 0.0)
+            video_active = frames_sent > 0
+
             status['video'] = {
-                'frames_sent': video_stats.get('frames_sent', 0),
-                'frames_dropped': video_stats.get('frames_dropped', 0),
-                'drop_rate': video_stats.get('drop_rate', 0.0),
+                'frames_sent': frames_sent,
+                'frames_dropped': frames_dropped,
+                'drop_rate': drop_rate,
                 'camera_errors': video_stats.get('camera_errors', 0),
                 'active_camera': video_stats.get('active_camera_id', 0),
+            }
+
+            # Update connections and data_flow with video info
+            status['connections']['video'] = {
+                'state': 'connected' if video_active else 'disconnected',
+                'direction': 'tx',
+            }
+            status['data_flow']['video_tx'] = {
+                'connected': video_active,
+                'frames_sent': frames_sent,
+                'frames_dropped': frames_dropped,
+                'drop_rate': drop_rate,
             }
         except ImportError as e:
             logger.debug(f"Cannot import video_capture: {e}")

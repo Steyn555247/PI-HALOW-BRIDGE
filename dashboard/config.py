@@ -69,6 +69,12 @@ ROBOT_BRIDGE_SERVICE = 'serpent-robot-bridge.service'
 BASE_BRIDGE_SERVICE = 'serpent-base-bridge.service'
 BACKEND_SERVICE = 'serpent-backend.service'
 
+# Role-aware service mapping: only check services that exist on this Pi
+ROLE_SERVICES = {
+    'robot_pi': [ROBOT_BRIDGE_SERVICE],
+    'base_pi': [BASE_BRIDGE_SERVICE, BACKEND_SERVICE],
+}
+
 # Log Configuration
 DEFAULT_LOG_LINES = 100
 MAX_LOG_LINES = 1000

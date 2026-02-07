@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SERPENT Dashboard - {{ role|upper }}</title>
+    <title>SERPENT Connectivity Dashboard - {{ role|upper }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
 <body>
+    <!-- Navbar -->
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">SERPENT Robot Dashboard - {{ role|upper }}</span>
+            <span class="navbar-brand mb-0 h1">SERPENT Connectivity Dashboard - {{ role|upper }}</span>
             <div class="d-flex">
                 <a href="/" class="btn btn-outline-light btn-sm me-2">Dashboard</a>
                 <a href="/logs" class="btn btn-outline-light btn-sm me-2">Logs</a>
@@ -20,47 +21,8 @@
     </nav>
 
     <div class="container-fluid mt-3">
-        <!-- Connection Status -->
-        <div class="row mb-3">
-            <div class="col-12">
-                <h4>Connection Status</h4>
-            </div>
-            <div class="col-md-3 col-sm-6 mb-2">
-                <div class="card">
-                    <div class="card-body">
-                        <h6 class="card-title">Control</h6>
-                        <div id="status-control" class="status-indicator status-unknown">Unknown</div>
-                        <small class="text-muted" id="status-control-age"></small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6 mb-2">
-                <div class="card">
-                    <div class="card-body">
-                        <h6 class="card-title">Telemetry</h6>
-                        <div id="status-telemetry" class="status-indicator status-unknown">Unknown</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6 mb-2">
-                <div class="card">
-                    <div class="card-body">
-                        <h6 class="card-title">Video</h6>
-                        <div id="status-video" class="status-indicator status-unknown">Unknown</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6 mb-2">
-                <div class="card">
-                    <div class="card-body">
-                        <h6 class="card-title">Backend</h6>
-                        <div id="status-backend" class="status-indicator status-unknown">Unknown</div>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- E-STOP Status -->
+        <!-- E-STOP Banner (UNCHANGED - safety critical) -->
         <div class="row mb-3">
             <div class="col-12">
                 <div class="card" id="estop-card">
@@ -71,145 +33,213 @@
                             <span id="estop-reason" class="ms-2"></span>
                             <span id="estop-age" class="ms-2 text-muted"></span>
                         </div>
+                        {% if role == 'robot_pi' %}
                         <div class="mt-3">
                             <button id="btn-estop-clear" class="btn btn-success btn-sm me-2" onclick="clearEstop()">Clear E-STOP</button>
                             <button id="btn-estop-engage" class="btn btn-danger btn-sm" onclick="engageEstop()">Emergency Stop</button>
-                            <small class="text-muted d-block mt-2">⚠️ Ensure all safety checks are complete before clearing E-STOP</small>
+                            <small class="text-muted d-block mt-2">Ensure all safety checks are complete before clearing E-STOP</small>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overall Status Banner -->
+        <div id="overall-status" class="overall-status down">Waiting for data...</div>
+
+        <!-- Data Flow Overview + Link Health -->
+        <div class="row mb-3">
+            <!-- Data Flow Diagram -->
+            <div class="col-lg-9 mb-3">
+                <div class="data-flow-overview">
+                    <h6 class="mb-3">Data Flow</h6>
+
+                    {% if role == 'robot_pi' %}
+                    <!-- Robot Pi perspective: receives control, sends telemetry + video -->
+                    <div class="data-flow-row">
+                        <span class="data-flow-node">Base Pi</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span id="df-control" class="data-flow-channel unknown">Control</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span class="data-flow-node self">Robot Pi</span>
+                    </div>
+                    <div class="data-flow-row">
+                        <span class="data-flow-node self">Robot Pi</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span id="df-telemetry" class="data-flow-channel unknown">Telemetry</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span class="data-flow-node">Base Pi</span>
+                    </div>
+                    <div class="data-flow-row">
+                        <span class="data-flow-node self">Robot Pi</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span id="df-video" class="data-flow-channel unknown">Video</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span class="data-flow-node">Base Pi</span>
+                    </div>
+                    {% else %}
+                    <!-- Base Pi perspective: sends control, receives telemetry + video -->
+                    <div class="data-flow-row">
+                        <span class="data-flow-node self">Base Pi</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span id="df-control" class="data-flow-channel unknown">Control</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span class="data-flow-node">Robot Pi</span>
+                    </div>
+                    <div class="data-flow-row">
+                        <span class="data-flow-node">Robot Pi</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span id="df-telemetry" class="data-flow-channel unknown">Telemetry</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span class="data-flow-node self">Base Pi</span>
+                    </div>
+                    <div class="data-flow-row">
+                        <span class="data-flow-node">Robot Pi</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span id="df-video" class="data-flow-channel unknown">Video</span>
+                        <span class="data-flow-arrow">&rarr;</span>
+                        <span class="data-flow-node self">Base Pi</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Link Health Sidebar -->
+            <div class="col-lg-3 mb-3">
+                <div class="card h-100">
+                    <div class="card-body link-health">
+                        <h6 class="card-title">Link Health</h6>
+                        <div class="health-item">
+                            <span>PSK Valid</span>
+                            <span id="health-psk" class="fw-bold">--</span>
+                        </div>
+                        <div class="health-item">
+                            <span>Uptime</span>
+                            <span id="health-uptime" class="fw-bold monospace">--</span>
+                        </div>
+                        <div class="health-item">
+                            <span>Last Update</span>
+                            <span id="health-timestamp" class="fw-bold monospace">--</span>
+                        </div>
+                        <div class="health-item">
+                            <span>Watchdog</span>
+                            <span id="health-watchdog" class="fw-bold">--</span>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="row">
-            <!-- Sensors Column -->
-            <div class="col-lg-4 mb-3">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Sensors</h5>
-
-                        <h6 class="mt-3">IMU</h6>
-                        <div id="sensor-imu">
-                            <small>
-                                <strong>Accel:</strong> X: <span id="imu-ax">--</span>, Y: <span id="imu-ay">--</span>, Z: <span id="imu-az">--</span><br>
-                                <strong>Gyro:</strong> X: <span id="imu-gx">--</span>, Y: <span id="imu-gy">--</span>, Z: <span id="imu-gz">--</span><br>
-                                <strong>Quat:</strong> W: <span id="imu-qw">--</span>, X: <span id="imu-qx">--</span>, Y: <span id="imu-qy">--</span>, Z: <span id="imu-qz">--</span>
-                            </small>
-                        </div>
-
-                        <h6 class="mt-3">Barometer</h6>
-                        <div id="sensor-baro">
-                            <small>
-                                <strong>Pressure:</strong> <span id="baro-pressure">--</span> Pa<br>
-                                <strong>Temperature:</strong> <span id="baro-temp">--</span> °C<br>
-                                <strong>Altitude:</strong> <span id="baro-alt">--</span> m
-                            </small>
-                        </div>
+        <!-- Channel Detail Cards -->
+        <div class="row mb-3">
+            <!-- Control Channel -->
+            <div class="col-md-4 mb-3">
+                <div id="card-control" class="channel-card unknown">
+                    <div class="channel-title">
+                        Control
+                        <span id="badge-control" class="state-badge unknown">unknown</span>
                     </div>
-                </div>
-
-                <!-- Health Card -->
-                <div class="card mt-3">
-                    <div class="card-body">
-                        <h5 class="card-title">System Health</h5>
-                        <small>
-                            <strong>Uptime:</strong> <span id="health-uptime">--</span>s<br>
-                            <strong>PSK Valid:</strong> <span id="health-psk">--</span><br>
-                            <strong>Last Update:</strong> <span id="health-timestamp">--</span>
-                        </small>
+                    <div class="channel-metric">
+                        <span class="metric-label">State</span>
+                        <span id="ctrl-state" class="metric-value">--</span>
                     </div>
+                    {% if role == 'robot_pi' %}
+                    <div class="channel-metric">
+                        <span class="metric-label">Established</span>
+                        <span id="ctrl-established" class="metric-value">--</span>
+                    </div>
+                    <div class="channel-metric">
+                        <span class="metric-label">Command Age</span>
+                        <span id="ctrl-age" class="metric-value">--</span>
+                    </div>
+                    <div class="channel-metric">
+                        <span class="metric-label">Sequence #</span>
+                        <span id="ctrl-seq" class="metric-value">--</span>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
-            <!-- Video Column -->
-            <div class="col-lg-4 mb-3">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Video Stream</h5>
-                        <div class="ratio ratio-4x3">
-                            <img id="video-stream" src="{{ video_url }}" alt="Video Stream" class="img-fluid">
-                        </div>
-
-                        <h6 class="mt-3">Video Stats</h6>
-                        <small>
-                            <strong>Frames Sent:</strong> <span id="video-frames-sent">--</span><br>
-                            <strong>Frames Dropped:</strong> <span id="video-frames-dropped">--</span><br>
-                            <strong>Drop Rate:</strong> <span id="video-drop-rate">--</span>%<br>
-                            <strong>Camera Errors:</strong> <span id="video-errors">--</span><br>
-                            <strong>Active Camera:</strong> <span id="video-active-camera">--</span>
-                        </small>
+            <!-- Telemetry Channel -->
+            <div class="col-md-4 mb-3">
+                <div id="card-telemetry" class="channel-card unknown">
+                    <div class="channel-title">
+                        Telemetry
+                        <span id="badge-telemetry" class="state-badge unknown">unknown</span>
                     </div>
+                    <div class="channel-metric">
+                        <span class="metric-label">State</span>
+                        <span id="telem-state" class="metric-value">--</span>
+                    </div>
+                    {% if role == 'base_pi' %}
+                    <div class="channel-metric">
+                        <span class="metric-label">RTT</span>
+                        <span id="telem-rtt" class="metric-value">--</span>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
-            <!-- Motors Column -->
-            <div class="col-lg-4 mb-3">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Motor Currents</h5>
-                        <div id="motor-currents">
-                            <div class="motor-bar mb-2">
-                                <small>M1:</small>
-                                <div class="progress">
-                                    <div id="motor-1" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-1-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M2:</small>
-                                <div class="progress">
-                                    <div id="motor-2" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-2-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M3:</small>
-                                <div class="progress">
-                                    <div id="motor-3" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-3-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M4:</small>
-                                <div class="progress">
-                                    <div id="motor-4" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-4-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M5:</small>
-                                <div class="progress">
-                                    <div id="motor-5" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-5-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M6:</small>
-                                <div class="progress">
-                                    <div id="motor-6" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-6-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M7:</small>
-                                <div class="progress">
-                                    <div id="motor-7" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-7-val">-- A</small>
-                            </div>
-                            <div class="motor-bar mb-2">
-                                <small>M8:</small>
-                                <div class="progress">
-                                    <div id="motor-8" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <small id="motor-8-val">-- A</small>
-                            </div>
-                        </div>
+            <!-- Video Channel -->
+            <div class="col-md-4 mb-3">
+                <div id="card-video" class="channel-card unknown">
+                    <div class="channel-title">
+                        Video
+                        <span id="badge-video" class="state-badge unknown">unknown</span>
+                    </div>
+                    <div class="channel-metric">
+                        <span class="metric-label">State</span>
+                        <span id="video-state" class="metric-value">--</span>
+                    </div>
+                    {% if role == 'robot_pi' %}
+                    <div class="channel-metric">
+                        <span class="metric-label">Frames Sent</span>
+                        <span id="video-frames-sent" class="metric-value">--</span>
+                    </div>
+                    <div class="channel-metric">
+                        <span class="metric-label">Frames Dropped</span>
+                        <span id="video-frames-dropped" class="metric-value">--</span>
+                    </div>
+                    <div class="channel-metric">
+                        <span class="metric-label">Drop Rate</span>
+                        <span id="video-drop-rate" class="metric-value">--</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
 
-                        <h6 class="mt-3">Servo Position</h6>
-                        <div class="progress">
-                            <div id="servo-position" class="progress-bar bg-info" role="progressbar" style="width: 0%">
-                                <span id="servo-val">0.0</span>
+        <!-- Sensors (collapsed accordion) -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="accordion sensors-accordion" id="sensorsAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sensorBody">
+                                Sensors
+                            </button>
+                        </h2>
+                        <div id="sensorBody" class="accordion-collapse collapse" data-bs-parent="#sensorsAccordion">
+                            <div class="accordion-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6>IMU</h6>
+                                        <small>
+                                            <strong>Accel:</strong> X: <span id="imu-ax">--</span>, Y: <span id="imu-ay">--</span>, Z: <span id="imu-az">--</span><br>
+                                            <strong>Gyro:</strong> X: <span id="imu-gx">--</span>, Y: <span id="imu-gy">--</span>, Z: <span id="imu-gz">--</span><br>
+                                            <strong>Quat:</strong> W: <span id="imu-qw">--</span>, X: <span id="imu-qx">--</span>, Y: <span id="imu-qy">--</span>, Z: <span id="imu-qz">--</span>
+                                        </small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6>Barometer</h6>
+                                        <small>
+                                            <strong>Pressure:</strong> <span id="baro-pressure">--</span> Pa<br>
+                                            <strong>Temperature:</strong> <span id="baro-temp">--</span> &deg;C<br>
+                                            <strong>Altitude:</strong> <span id="baro-alt">--</span> m
+                                        </small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -217,92 +247,51 @@
             </div>
         </div>
 
-        <!-- Motor Test Controls (Robot Pi only) -->
+        <!-- Motor Controls (Robot Pi only, collapsed) -->
         {% if role == 'robot_pi' %}
         <div class="row mb-3">
             <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Motor Test Controls</h5>
-                        <p class="text-muted small">Manual motor testing at 95% power (760/800). Motors disabled when E-STOP engaged.</p>
-
-                        <div class="row">
-                            <!-- Motors 0-3 -->
-                            <div class="col-md-6">
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 0</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(0, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(0, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(0, -760)">Backward</button>
+                <div class="accordion" id="motorAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#motorBody">
+                                Motor Test Controls
+                            </button>
+                        </h2>
+                        <div id="motorBody" class="accordion-collapse collapse" data-bs-parent="#motorAccordion">
+                            <div class="accordion-body">
+                                <p class="text-muted small">Manual motor testing at 95% power (760/800). Motors disabled when E-STOP engaged.</p>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        {% for i in range(4) %}
+                                        <div class="motor-test-control mb-3">
+                                            <strong>Motor {{ i }}</strong>
+                                            <div class="btn-group ms-2" role="group">
+                                                <button class="btn btn-sm btn-success" onclick="setMotor({{ i }}, 760)">Forward</button>
+                                                <button class="btn btn-sm btn-secondary" onclick="setMotor({{ i }}, 0)">Stop</button>
+                                                <button class="btn btn-sm btn-warning" onclick="setMotor({{ i }}, -760)">Backward</button>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        {% for i in range(4, 8) %}
+                                        <div class="motor-test-control mb-3">
+                                            <strong>Motor {{ i }}</strong>
+                                            <div class="btn-group ms-2" role="group">
+                                                <button class="btn btn-sm btn-success" onclick="setMotor({{ i }}, 760)">Forward</button>
+                                                <button class="btn btn-sm btn-secondary" onclick="setMotor({{ i }}, 0)">Stop</button>
+                                                <button class="btn btn-sm btn-warning" onclick="setMotor({{ i }}, -760)">Backward</button>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
                                     </div>
                                 </div>
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 1</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(1, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(1, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(1, -760)">Backward</button>
-                                    </div>
-                                </div>
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 2</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(2, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(2, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(2, -760)">Backward</button>
-                                    </div>
-                                </div>
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 3</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(3, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(3, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(3, -760)">Backward</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Motors 4-7 -->
-                            <div class="col-md-6">
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 4</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(4, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(4, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(4, -760)">Backward</button>
-                                    </div>
-                                </div>
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 5</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(5, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(5, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(5, -760)">Backward</button>
-                                    </div>
-                                </div>
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 6</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(6, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(6, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(6, -760)">Backward</button>
-                                    </div>
-                                </div>
-                                <div class="motor-test-control mb-3">
-                                    <strong>Motor 7</strong>
-                                    <div class="btn-group ms-2" role="group">
-                                        <button class="btn btn-sm btn-success" onclick="setMotor(7, 760)">Forward</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="setMotor(7, 0)">Stop</button>
-                                        <button class="btn btn-sm btn-warning" onclick="setMotor(7, -760)">Backward</button>
-                                    </div>
+                                <div class="alert alert-warning mt-3" role="alert">
+                                    <strong>Safety Notice:</strong> Ensure robot is in a safe testing position before activating motors.
+                                    Use Emergency Stop button if needed.
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="alert alert-warning mt-3" role="alert">
-                            <strong>Safety Notice:</strong> Ensure robot is in a safe testing position before activating motors.
-                            Use Emergency Stop button if needed.
                         </div>
                     </div>
                 </div>
@@ -310,7 +299,7 @@
         </div>
         {% endif %}
 
-        <!-- Issues Alert -->
+        <!-- Issues -->
         <div class="row">
             <div class="col-12">
                 <div id="issues-container"></div>
@@ -320,6 +309,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- Pass role to JS -->
+    <script>const DASHBOARD_ROLE = '{{ role }}';</script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>

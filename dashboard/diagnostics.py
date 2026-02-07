@@ -236,6 +236,7 @@ def detect_issues(status_data: Dict) -> List[Dict]:
     issues = []
 
     connections = status_data.get('connections', {})
+    data_flow = status_data.get('data_flow', {})
     estop = status_data.get('estop', {})
     video = status_data.get('video', {})
     health = status_data.get('health', {})
@@ -250,7 +251,8 @@ def detect_issues(status_data: Dict) -> List[Dict]:
         })
 
     # Control disconnected
-    if connections.get('control') == 'disconnected':
+    control_state = connections.get('control', {}).get('state', 'unknown')
+    if control_state == 'disconnected':
         issues.append({
             'severity': 'critical',
             'title': "Control connection disconnected",
@@ -258,9 +260,9 @@ def detect_issues(status_data: Dict) -> List[Dict]:
             'suggestion': f"Check network connectivity. Verify Robot Pi port {config.CONTROL_PORT}. Check firewall rules."
         })
 
-    # Control commands stale
-    control_age = connections.get('control_age_ms', 0)
-    if connections.get('control') == 'connected' and control_age > config.CONTROL_AGE_STALE_MS:
+    # Control commands stale (robot_pi receives control, check data_flow)
+    control_age = connections.get('control', {}).get('age_ms', 0)
+    if control_state == 'connected' and control_age > config.CONTROL_AGE_STALE_MS:
         issues.append({
             'severity': 'warning',
             'title': f"Control commands stale ({control_age}ms old)",
@@ -268,13 +270,14 @@ def detect_issues(status_data: Dict) -> List[Dict]:
             'suggestion': "Check if backend is sending commands. Verify serpent_backend service is running."
         })
 
-    # Video high drop rate
-    drop_rate = video.get('drop_rate', 0.0)
+    # Video high drop rate (from data_flow on robot, or video dict from direct inspection)
+    drop_rate = data_flow.get('video_tx', {}).get('drop_rate', 0.0) or video.get('drop_rate', 0.0)
     if drop_rate > config.VIDEO_DROP_RATE_WARN:
+        frames_dropped = data_flow.get('video_tx', {}).get('frames_dropped', 0) or video.get('frames_dropped', 0)
         issues.append({
             'severity': 'warning',
             'title': f"High video frame drop rate ({drop_rate*100:.1f}%)",
-            'description': f"Dropped {video.get('frames_dropped', 0)} frames",
+            'description': f"Dropped {frames_dropped} frames",
             'suggestion': "Network may be congested. Check HaLow signal strength. Consider reducing resolution or FPS."
         })
 
@@ -289,7 +292,8 @@ def detect_issues(status_data: Dict) -> List[Dict]:
         })
 
     # Telemetry disconnected
-    if connections.get('telemetry') == 'disconnected':
+    telemetry_state = connections.get('telemetry', {}).get('state', 'unknown')
+    if telemetry_state == 'disconnected':
         issues.append({
             'severity': 'warning',
             'title': "Telemetry connection disconnected",
@@ -298,7 +302,8 @@ def detect_issues(status_data: Dict) -> List[Dict]:
         })
 
     # Backend disconnected (Base Pi only)
-    if status_data.get('role') == 'base_pi' and connections.get('backend') == 'disconnected':
+    backend_state = connections.get('backend', {}).get('state', 'unknown')
+    if status_data.get('role') == 'base_pi' and backend_state == 'disconnected':
         issues.append({
             'severity': 'critical',
             'title': "Backend connection disconnected",

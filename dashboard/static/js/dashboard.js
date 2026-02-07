@@ -1,4 +1,4 @@
-// SERPENT Dashboard JavaScript
+// SERPENT Connectivity Dashboard JavaScript
 
 // WebSocket connection
 let socket = null;
@@ -38,81 +38,200 @@ function connectWebSocket() {
 
 // Update dashboard with new status data
 function updateDashboard(status) {
-    // Update connection status
-    updateConnections(status.connections);
+    // Update data flow overview badges
+    updateDataFlowOverview(status.connections);
 
-    // Update E-STOP status
+    // Update channel detail cards
+    updateChannelDetails(status.data_flow, status.connections);
+
+    // Update overall status banner
+    updateOverallStatus(status.connections);
+
+    // Update E-STOP status (UNCHANGED)
     updateEstop(status.estop);
 
-    // Update sensors
-    updateSensors(status.sensors);
-
-    // Update actuators (motors/servo)
-    updateActuators(status.actuators);
-
-    // Update video stats
-    updateVideoStats(status.video);
-
-    // Update health
+    // Update health sidebar
     updateHealth(status.health, status.timestamp);
+
+    // Update sensors (collapsed section)
+    updateSensors(status.sensors);
 
     // Update issues
     updateIssues(status);
 }
 
-// Update connection indicators
-function updateConnections(connections) {
+// ============================================================================
+// Badge / State Helpers
+// ============================================================================
+
+/**
+ * Update a state badge element with consistent green/red/gray styling.
+ * @param {string} badgeId - Element ID of the badge span
+ * @param {string} state  - 'connected' | 'disconnected' | 'unknown'
+ */
+function updateBadge(badgeId, state) {
+    const el = document.getElementById(badgeId);
+    if (!el) return;
+
+    el.classList.remove('connected', 'disconnected', 'unknown');
+
+    if (state === 'connected') {
+        el.classList.add('connected');
+        el.textContent = 'connected';
+    } else if (state === 'disconnected') {
+        el.classList.add('disconnected');
+        el.textContent = 'disconnected';
+    } else {
+        el.classList.add('unknown');
+        el.textContent = 'unknown';
+    }
+}
+
+/**
+ * Update a channel card's left-border colour class.
+ */
+function updateCardColor(cardId, state) {
+    const el = document.getElementById(cardId);
+    if (!el) return;
+
+    el.classList.remove('ok', 'error', 'unknown');
+
+    if (state === 'connected') {
+        el.classList.add('ok');
+    } else if (state === 'disconnected') {
+        el.classList.add('error');
+    } else {
+        el.classList.add('unknown');
+    }
+}
+
+/**
+ * Update a data-flow-channel pill in the overview diagram.
+ */
+function updateFlowPill(pillId, connected) {
+    const el = document.getElementById(pillId);
+    if (!el) return;
+
+    el.classList.remove('connected', 'disconnected', 'unknown');
+
+    if (connected === true) {
+        el.classList.add('connected');
+    } else if (connected === false) {
+        el.classList.add('disconnected');
+    } else {
+        el.classList.add('unknown');
+    }
+}
+
+// ============================================================================
+// Data Flow Overview
+// ============================================================================
+
+function updateDataFlowOverview(connections) {
     if (!connections) return;
 
-    // Control
-    if (connections.control !== undefined) {
-        updateStatusIndicator('status-control', connections.control);
+    const controlState = (connections.control || {}).state;
+    const telemetryState = (connections.telemetry || {}).state;
+    const videoState = (connections.video || {}).state;
 
-        if (connections.control_age_ms !== undefined) {
-            const age = connections.control_age_ms;
-            document.getElementById('status-control-age').textContent =
-                age > 0 ? `(${age}ms old)` : '';
+    updateFlowPill('df-control', controlState === 'connected' ? true : controlState === 'disconnected' ? false : null);
+    updateFlowPill('df-telemetry', telemetryState === 'connected' ? true : telemetryState === 'disconnected' ? false : null);
+    updateFlowPill('df-video', videoState === 'connected' ? true : videoState === 'disconnected' ? false : null);
+}
+
+// ============================================================================
+// Channel Detail Cards
+// ============================================================================
+
+function updateChannelDetails(dataFlow, connections) {
+    if (!connections) return;
+    dataFlow = dataFlow || {};
+
+    // --- Control ---
+    const controlConn = connections.control || {};
+    const controlState = controlConn.state || 'unknown';
+    updateCardColor('card-control', controlState);
+    updateBadge('badge-control', controlState);
+    setText('ctrl-state', controlState);
+
+    // Robot Pi extras
+    if (DASHBOARD_ROLE === 'robot_pi') {
+        const ctrlFlow = dataFlow.control_rx || {};
+        setText('ctrl-established', ctrlFlow.established ? 'Yes' : 'No');
+        setText('ctrl-age', ctrlFlow.age_ms !== undefined ? ctrlFlow.age_ms + ' ms' : '--');
+        setText('ctrl-seq', ctrlFlow.seq !== undefined ? ctrlFlow.seq : '--');
+    }
+
+    // --- Telemetry ---
+    const telemConn = connections.telemetry || {};
+    const telemState = telemConn.state || 'unknown';
+    updateCardColor('card-telemetry', telemState);
+    updateBadge('badge-telemetry', telemState);
+    setText('telem-state', telemState);
+
+    // Base Pi extras
+    if (DASHBOARD_ROLE === 'base_pi') {
+        const telemFlow = dataFlow.telemetry_rx || {};
+        setText('telem-rtt', telemFlow.rtt_ms !== undefined ? telemFlow.rtt_ms + ' ms' : '--');
+    }
+
+    // --- Video ---
+    const videoConn = connections.video || {};
+    const videoState = videoConn.state || 'unknown';
+    updateCardColor('card-video', videoState);
+    updateBadge('badge-video', videoState);
+    setText('video-state', videoState);
+
+    // Robot Pi extras
+    if (DASHBOARD_ROLE === 'robot_pi') {
+        const videoFlow = dataFlow.video_tx || {};
+        setText('video-frames-sent', videoFlow.frames_sent !== undefined ? videoFlow.frames_sent : '--');
+        setText('video-frames-dropped', videoFlow.frames_dropped !== undefined ? videoFlow.frames_dropped : '--');
+        if (videoFlow.drop_rate !== undefined) {
+            const pct = (videoFlow.drop_rate * 100).toFixed(1) + '%';
+            const el = document.getElementById('video-drop-rate');
+            if (el) {
+                el.textContent = pct;
+                el.style.color = videoFlow.drop_rate > 0.1 ? 'red' : videoFlow.drop_rate > 0.05 ? 'orange' : 'inherit';
+            }
+        } else {
+            setText('video-drop-rate', '--');
         }
     }
-
-    // Telemetry
-    if (connections.telemetry !== undefined) {
-        updateStatusIndicator('status-telemetry', connections.telemetry);
-    }
-
-    // Video
-    if (connections.video !== undefined) {
-        updateStatusIndicator('status-video', connections.video);
-    }
-
-    // Backend
-    if (connections.backend !== undefined) {
-        updateStatusIndicator('status-backend', connections.backend);
-    }
 }
 
-// Update status indicator element
-function updateStatusIndicator(elementId, status) {
-    const element = document.getElementById(elementId);
-    if (!element) return;
+// ============================================================================
+// Overall Status Banner
+// ============================================================================
 
-    // Remove existing status classes
-    element.classList.remove('status-connected', 'status-disconnected', 'status-unknown', 'status-warning');
+function updateOverallStatus(connections) {
+    const el = document.getElementById('overall-status');
+    if (!el || !connections) return;
 
-    // Add appropriate class and text
-    if (status === 'connected' || status === true) {
-        element.classList.add('status-connected');
-        element.textContent = 'Connected';
-    } else if (status === 'disconnected' || status === false) {
-        element.classList.add('status-disconnected');
-        element.textContent = 'Disconnected';
+    const states = ['control', 'telemetry', 'video']
+        .map(ch => (connections[ch] || {}).state || 'unknown');
+
+    const connected = states.filter(s => s === 'connected').length;
+    const disconnected = states.filter(s => s === 'disconnected').length;
+
+    el.classList.remove('healthy', 'degraded', 'down');
+
+    if (connected === states.length) {
+        el.classList.add('healthy');
+        el.textContent = 'All channels connected';
+    } else if (disconnected === states.length) {
+        el.classList.add('down');
+        el.textContent = 'All channels disconnected';
     } else {
-        element.classList.add('status-unknown');
-        element.textContent = 'Unknown';
+        el.classList.add('degraded');
+        el.textContent = `${connected}/${states.length} channels connected`;
     }
 }
 
-// Update E-STOP status
+// ============================================================================
+// E-STOP (UNCHANGED)
+// ============================================================================
+
 function updateEstop(estop) {
     if (!estop) return;
 
@@ -143,11 +262,47 @@ function updateEstop(estop) {
     }
 }
 
-// Update sensor displays
+// ============================================================================
+// Health Sidebar
+// ============================================================================
+
+function updateHealth(health, timestamp) {
+    if (!health) return;
+
+    setText('health-psk', health.psk_valid ? 'Yes' : 'No');
+
+    if (health.uptime_s !== undefined) {
+        const s = health.uptime_s;
+        if (s >= 3600) {
+            setText('health-uptime', Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm');
+        } else if (s >= 60) {
+            setText('health-uptime', Math.floor(s / 60) + 'm ' + (s % 60) + 's');
+        } else {
+            setText('health-uptime', s + 's');
+        }
+    }
+
+    if (timestamp) {
+        const date = new Date(timestamp * 1000);
+        setText('health-timestamp', date.toLocaleTimeString());
+    }
+
+    if (health.watchdog_disabled !== undefined) {
+        const el = document.getElementById('health-watchdog');
+        if (el) {
+            el.textContent = health.watchdog_disabled ? 'DISABLED' : 'Active';
+            el.style.color = health.watchdog_disabled ? 'orange' : 'inherit';
+        }
+    }
+}
+
+// ============================================================================
+// Sensors (collapsed section - same data)
+// ============================================================================
+
 function updateSensors(sensors) {
     if (!sensors) return;
 
-    // IMU
     if (sensors.imu) {
         const imu = sensors.imu;
         if (imu.accel) {
@@ -168,7 +323,6 @@ function updateSensors(sensors) {
         }
     }
 
-    // Barometer
     if (sensors.barometer) {
         const baro = sensors.barometer;
         setText('baro-pressure', baro.pressure?.toFixed(1));
@@ -177,102 +331,11 @@ function updateSensors(sensors) {
     }
 }
 
-// Update actuator displays (motors, servo)
-function updateActuators(actuators) {
-    if (!actuators) return;
+// ============================================================================
+// Issues
+// ============================================================================
 
-    // Motor currents
-    if (actuators.motor_currents) {
-        const maxCurrent = 3.0; // Assume 3A max for visualization
-        for (let i = 0; i < 8; i++) {
-            const current = actuators.motor_currents[i];
-            if (current !== undefined) {
-                const percent = Math.min((Math.abs(current) / maxCurrent) * 100, 100);
-                const bar = document.getElementById(`motor-${i+1}`);
-                const val = document.getElementById(`motor-${i+1}-val`);
-
-                if (bar) {
-                    bar.style.width = `${percent}%`;
-
-                    // Color based on current level
-                    if (percent > 80) {
-                        bar.className = 'progress-bar bg-danger';
-                    } else if (percent > 50) {
-                        bar.className = 'progress-bar bg-warning';
-                    } else {
-                        bar.className = 'progress-bar bg-success';
-                    }
-                }
-
-                if (val) {
-                    val.textContent = `${current.toFixed(2)} A`;
-                }
-            }
-        }
-    }
-
-    // Servo position
-    if (actuators.servo_position !== undefined) {
-        const position = actuators.servo_position;
-        const percent = position * 100;
-
-        const bar = document.getElementById('servo-position');
-        const val = document.getElementById('servo-val');
-
-        if (bar) {
-            bar.style.width = `${percent}%`;
-        }
-        if (val) {
-            val.textContent = position.toFixed(2);
-        }
-    }
-}
-
-// Update video statistics
-function updateVideoStats(video) {
-    if (!video) return;
-
-    setText('video-frames-sent', video.frames_sent);
-    setText('video-frames-dropped', video.frames_dropped);
-
-    if (video.drop_rate !== undefined) {
-        const dropRatePercent = (video.drop_rate * 100).toFixed(1);
-        const elem = document.getElementById('video-drop-rate');
-        if (elem) {
-            elem.textContent = dropRatePercent;
-
-            // Color-code based on drop rate
-            if (video.drop_rate > 0.1) {
-                elem.style.color = 'red';
-                elem.style.fontWeight = 'bold';
-            } else if (video.drop_rate > 0.05) {
-                elem.style.color = 'orange';
-            } else {
-                elem.style.color = 'inherit';
-            }
-        }
-    }
-
-    setText('video-errors', video.camera_errors);
-    setText('video-active-camera', video.active_camera);
-}
-
-// Update health indicators
-function updateHealth(health, timestamp) {
-    if (!health) return;
-
-    setText('health-uptime', health.uptime_s);
-    setText('health-psk', health.psk_valid ? 'Yes' : 'No');
-
-    if (timestamp) {
-        const date = new Date(timestamp * 1000);
-        setText('health-timestamp', date.toLocaleTimeString());
-    }
-}
-
-// Update issues display
 function updateIssues(status) {
-    // Fetch issues from API
     fetch('/api/diagnostics/issues')
         .then(response => response.json())
         .then(data => {
@@ -283,7 +346,6 @@ function updateIssues(status) {
         });
 }
 
-// Display issues
 function displayIssues(issues) {
     const container = document.getElementById('issues-container');
     if (!container) return;
@@ -303,14 +365,17 @@ function displayIssues(issues) {
         html += `<div class="alert ${alertClass} issue-alert ${severityClass}">`;
         html += `<strong>${issue.title}</strong><br>`;
         html += `<small>${issue.description}</small>`;
-        html += `<div class="issue-suggestion"><em>💡 ${issue.suggestion}</em></div>`;
+        html += `<div class="issue-suggestion"><em>${issue.suggestion}</em></div>`;
         html += '</div>';
     }
 
     container.innerHTML = html;
 }
 
-// Helper: Set text content safely
+// ============================================================================
+// Helpers
+// ============================================================================
+
 function setText(id, value) {
     const element = document.getElementById(id);
     if (element) {
@@ -319,10 +384,9 @@ function setText(id, value) {
 }
 
 // ============================================================================
-// Motor Control Functions
+// Motor Control Functions (UNCHANGED)
 // ============================================================================
 
-// Set motor speed
 function setMotor(motorId, speed) {
     fetch('/api/motor/set', {
         method: 'POST',
@@ -351,7 +415,6 @@ function setMotor(motorId, speed) {
     });
 }
 
-// Clear E-STOP
 function clearEstop() {
     if (!confirm('Are you sure you want to clear the E-STOP?\n\nEnsure all safety checks are complete before proceeding.')) {
         return;
@@ -379,7 +442,6 @@ function clearEstop() {
     });
 }
 
-// Engage E-STOP (Emergency Stop)
 function engageEstop() {
     fetch('/api/estop/engage', {
         method: 'POST',
@@ -402,9 +464,12 @@ function engageEstop() {
     });
 }
 
-// Initialize on page load
+// ============================================================================
+// Initialize
+// ============================================================================
+
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Dashboard initializing...');
+    console.log('Connectivity Dashboard initializing...');
 
     // Connect WebSocket for real-time updates
     connectWebSocket();
