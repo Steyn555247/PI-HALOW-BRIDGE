@@ -17,8 +17,16 @@ from common.constants import (
 # Simulation mode - enables testing without hardware
 SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
 
-# Network Configuration
-ROBOT_PI_IP = os.getenv('ROBOT_PI_IP', '192.168.100.2')
+# ============================================================================
+# NETWORK CONFIGURATION - VERIFY FOR YOUR DEPLOYMENT
+# ============================================================================
+# Current configuration uses 192.168.1.x subnet (matching dashboard)
+# If you experience connection issues, verify your actual network subnet:
+#   - Check with: ip addr show
+#   - Update ROBOT_PI_IP if needed
+#   - Git history shows subnet was changed from 192.168.100.x to 192.168.1.x
+# ============================================================================
+ROBOT_PI_IP = os.getenv('ROBOT_PI_IP', '192.168.1.2')
 CONTROL_PORT = int(os.getenv('CONTROL_PORT', str(DEFAULT_CONTROL_PORT)))
 VIDEO_PORT = int(os.getenv('VIDEO_PORT', str(DEFAULT_VIDEO_PORT)))
 TELEMETRY_PORT = int(os.getenv('TELEMETRY_PORT', str(DEFAULT_TELEMETRY_PORT)))

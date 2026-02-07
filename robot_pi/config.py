@@ -18,8 +18,16 @@ from common.constants import (
 # SAFETY: Never enable by default on Pi. Only for Windows development.
 SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
 
-# Network Configuration
-BASE_PI_IP = os.getenv('BASE_PI_IP', '192.168.100.1')
+# ============================================================================
+# NETWORK CONFIGURATION - VERIFY FOR YOUR DEPLOYMENT
+# ============================================================================
+# Current configuration uses 192.168.1.x subnet (matching dashboard)
+# If you experience connection issues, verify your actual network subnet:
+#   - Check with: ip addr show
+#   - Update BASE_PI_IP if needed
+#   - Git history shows subnet was changed from 192.168.100.x to 192.168.1.x
+# ============================================================================
+BASE_PI_IP = os.getenv('BASE_PI_IP', '192.168.1.1')
 CONTROL_PORT = int(os.getenv('CONTROL_PORT', str(DEFAULT_CONTROL_PORT)))
 VIDEO_PORT = int(os.getenv('VIDEO_PORT', str(DEFAULT_VIDEO_PORT)))
 TELEMETRY_PORT = int(os.getenv('TELEMETRY_PORT', str(DEFAULT_TELEMETRY_PORT)))
@@ -45,6 +53,29 @@ BNO085_ADDRESS = int(os.getenv('BNO085_ADDRESS', '0x4A'), 16)
 BMP388_ADDRESS = int(os.getenv('BMP388_ADDRESS', '0x77'), 16)
 SENSOR_READ_INTERVAL = float(os.getenv('SENSOR_READ_INTERVAL', '0.1'))  # 100ms
 
+# I2C Multiplexer Configuration (PCA9548 - for multi-sensor support)
+USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'false').lower() == 'true'
+I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
+IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '0'))
+BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '1'))
+
+# Current Sensor Configuration (INA228 - for power monitoring)
+# Battery current sensor
+CURRENT_SENSOR_BATTERY_ADDR = int(os.getenv('CURRENT_SENSOR_BATTERY_ADDR', '0x40'), 16)
+CURRENT_SENSOR_BATTERY_CHANNEL = int(os.getenv('CURRENT_SENSOR_BATTERY_CHANNEL', '0'))
+
+# System power current sensor
+CURRENT_SENSOR_SYSTEM_ADDR = int(os.getenv('CURRENT_SENSOR_SYSTEM_ADDR', '0x41'), 16)
+CURRENT_SENSOR_SYSTEM_CHANNEL = int(os.getenv('CURRENT_SENSOR_SYSTEM_CHANNEL', '0'))
+
+# Servo power current sensor
+CURRENT_SENSOR_SERVO_ADDR = int(os.getenv('CURRENT_SENSOR_SERVO_ADDR', '0x42'), 16)
+CURRENT_SENSOR_SERVO_CHANNEL = int(os.getenv('CURRENT_SENSOR_SERVO_CHANNEL', '0'))
+
+# Current sensor parameters
+CURRENT_SENSOR_SHUNT_OHMS = float(os.getenv('CURRENT_SENSOR_SHUNT_OHMS', '0.001'))  # 1mΩ shunt
+CURRENT_SENSOR_MAX_EXPECTED_AMPS = float(os.getenv('CURRENT_SENSOR_MAX_EXPECTED_AMPS', '50.0'))
+
 # Motoron Configuration (I2C)
 MOTORON_ADDRESSES = [
     int(os.getenv('MOTORON_ADDR_0', '0x10'), 16),
@@ -69,6 +100,10 @@ WATCHDOG_TIMEOUT = WATCHDOG_TIMEOUT_S  # 5.0 seconds - DO NOT CHANGE
 STARTUP_GRACE = STARTUP_GRACE_S        # 30.0 seconds - DO NOT CHANGE
 RECONNECT_DELAY = RECONNECT_DELAY_S    # 2.0 seconds
 EMERGENCY_STOP_ENABLED = True
+
+# SAFETY: Watchdog can be disabled for local testing ONLY
+# NEVER enable this in production - it disables critical safety timeouts
+DISABLE_WATCHDOG_FOR_LOCAL_TESTING = os.getenv('DISABLE_WATCHDOG_FOR_LOCAL_TESTING', 'false').lower() == 'true'
 
 # Telemetry Configuration
 TELEMETRY_INTERVAL = float(os.getenv('TELEMETRY_INTERVAL', '0.1'))  # 100ms
