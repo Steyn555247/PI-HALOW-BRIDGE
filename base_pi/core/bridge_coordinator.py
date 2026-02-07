@@ -337,6 +337,17 @@ class HaLowBridge:
                 # Check safety conditions
                 self.watchdog.check_safety()
 
+                # Get latest sensor data from telemetry buffer
+                sensor_data = None
+                if self.telemetry_buffer:
+                    latest_telemetry = self.telemetry_buffer.get_latest()
+                    if latest_telemetry:
+                        sensor_data = {}
+                        if 'imu' in latest_telemetry:
+                            sensor_data['imu'] = latest_telemetry['imu']
+                        if 'barometer' in latest_telemetry:
+                            sensor_data['barometer'] = latest_telemetry['barometer']
+
                 # Log status periodically
                 self.watchdog.log_status(
                     backend_connected=self.state.is_backend_connected(),
@@ -345,7 +356,8 @@ class HaLowBridge:
                     video_connected=self.video_receiver.is_connected() if self.video_receiver else False,
                     robot_estop_state=self.state.get_estop_state(),
                     psk_valid=self.framer.is_authenticated(),
-                    robot_estop_reason=self.state.get_estop_reason()
+                    robot_estop_reason=self.state.get_estop_reason(),
+                    sensor_data=sensor_data
                 )
 
             except Exception as e:

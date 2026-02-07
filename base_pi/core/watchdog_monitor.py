@@ -84,7 +84,8 @@ class WatchdogMonitor:
         video_connected: bool,
         robot_estop_state: Optional[bool],
         psk_valid: bool,
-        robot_estop_reason: Optional[str] = None
+        robot_estop_reason: Optional[str] = None,
+        sensor_data: Optional[dict] = None
     ):
         """
         Log periodic status for monitoring.
@@ -97,6 +98,7 @@ class WatchdogMonitor:
             robot_estop_state: Robot E-STOP state
             psk_valid: PSK validation state
             robot_estop_reason: Robot E-STOP reason string (from telemetry)
+            sensor_data: Sensor data from telemetry (IMU, barometer)
         """
         now = time.time()
 
@@ -112,5 +114,13 @@ class WatchdogMonitor:
                 "robot_estop_reason": robot_estop_reason,
                 "psk_valid": psk_valid
             }
+
+            # Include sensor data if available
+            if sensor_data:
+                if 'imu' in sensor_data:
+                    status['imu'] = sensor_data['imu']
+                if 'barometer' in sensor_data:
+                    status['barometer'] = sensor_data['barometer']
+
             logger.info(json.dumps(status))
             self.last_status_log = now

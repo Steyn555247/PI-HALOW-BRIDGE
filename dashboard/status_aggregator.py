@@ -219,6 +219,12 @@ def _collect_base_status() -> Dict:
             'psk_valid': log_status.get('psk_valid', False),
             'uptime_s': log_status.get('uptime_s', 0) if using_robot_logs else 0,
         }
+
+        # Extract sensor data from logs (received via telemetry from Robot Pi)
+        if 'imu' in log_status:
+            status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
+        if 'barometer' in log_status:
+            status['sensors']['barometer'] = log_status['barometer']
     else:
         status['connections'] = {
             'backend': 'unknown',
