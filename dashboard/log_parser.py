@@ -139,7 +139,8 @@ def get_latest_status_event(service_name: str) -> Optional[Dict]:
     Returns:
         Status event dictionary or None if not found
     """
-    logs = parse_recent_logs(service_name, lines=50)
+    # Increased from 50 to 300 to handle log flooding from sensor errors
+    logs = parse_recent_logs(service_name, lines=300)
 
     # Search backwards for most recent status event
     for log in reversed(logs):

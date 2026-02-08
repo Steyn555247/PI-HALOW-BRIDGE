@@ -411,6 +411,46 @@
             </div>
         </div>
 
+        <!-- Motor Currents (collapsed accordion) -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="accordion motors-accordion" id="motorsAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#motorsBody">
+                                Motor Currents
+                            </button>
+                        </h2>
+                        <div id="motorsBody" class="accordion-collapse collapse" data-bs-parent="#motorsAccordion">
+                            <div class="accordion-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        {% for i in range(4) %}
+                                        <div class="motor-current-item mb-2">
+                                            <strong>Motor {{ i }}:</strong> <span id="motor-{{ i }}-current" class="badge bg-secondary">-- A</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        {% for i in range(4, 8) %}
+                                        <div class="motor-current-item mb-2">
+                                            <strong>Motor {{ i }}:</strong> <span id="motor-{{ i }}-current" class="badge bg-secondary">-- A</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <small class="text-muted">
+                                        <strong>Total Current:</strong> <span id="motor-total-current" class="text-info">-- A</span>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Motor Controls (Robot Pi only, collapsed) -->
         {% if role == 'robot_pi' %}
         <div class="row mb-3">

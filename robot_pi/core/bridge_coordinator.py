@@ -221,12 +221,11 @@ class HaLowBridge:
         self._watchdog_loop()
 
     def stop(self):
-        """Stop the bridge. Engages E-STOP."""
+        """Stop the bridge."""
         logger.info("Stopping HaLowBridge...")
         self.running = False
 
-        # Engage E-STOP on shutdown
-        self.actuator_controller.engage_estop(ESTOP_REASON_INTERNAL_ERROR, "Bridge shutdown")
+        # E-STOP on shutdown disabled - only operator_command E-STOP enabled
 
         # Stop components
         self.actuator_controller.stop()
@@ -267,9 +266,7 @@ class HaLowBridge:
 
             except Exception as e:
                 logger.error(f"Unexpected error in control loop: {e}")
-                self.actuator_controller.engage_estop(
-                    ESTOP_REASON_INTERNAL_ERROR, str(e)
-                )
+                # E-STOP on error disabled - only operator_command E-STOP enabled
                 self.control_server.close_client()
                 time.sleep(1.0)
 
@@ -353,11 +350,15 @@ class HaLowBridge:
                     telemetry_connected=self.telemetry_sender.is_connected()
                 )
 
-                # Log status periodically (include sensor data for dashboard)
+                # Log status periodically (include sensor data and motor currents for dashboard)
                 sensor_data = self.sensor_reader.get_all_data()
+                motor_currents = self.actuator_controller.get_motor_currents()
+                video_stats = self.video_capture.get_stats() if self.video_capture else None
                 self.watchdog_monitor.log_status(
                     telemetry_connected=self.telemetry_sender.is_connected(),
-                    sensor_data=sensor_data
+                    sensor_data=sensor_data,
+                    motor_currents=motor_currents,
+                    video_stats=video_stats
                 )
 
             except Exception as e:

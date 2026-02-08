@@ -483,6 +483,7 @@ class VideoCapture:
         """Get capture statistics"""
         total = self.frames_sent + self.frames_dropped
         return {
+            'connected': self.connected,
             'frames_sent': self.frames_sent,
             'frames_dropped': self.frames_dropped,
             'camera_errors': self.camera_errors,

@@ -89,34 +89,19 @@ class WatchdogMonitor:
         uptime = now - self.boot_time
         control_age = self.control_server.get_control_age()
 
-        # SAFETY CHECK 1: Startup grace period
-        # If control not established after STARTUP_GRACE_S, engage E-STOP
-        if uptime > STARTUP_GRACE_S and not self.control_server.is_control_established():
-            if not self.actuator_controller.is_estop_engaged():
-                logger.error(f"Control not established after {uptime:.0f}s, engaging E-STOP")
-                self.actuator_controller.engage_estop(
-                    ESTOP_REASON_STARTUP_TIMEOUT,
-                    f"No control after {STARTUP_GRACE_S}s"
-                )
-            # Continue checking - E-STOP stays latched
+        # SAFETY CHECKS DISABLED - Only operator_command E-STOP enabled
+        # Startup grace period check disabled
+        # Control timeout check disabled
 
-        # SAFETY CHECK 2: Control timeout
-        # If no valid control for WATCHDOG_TIMEOUT_S, engage E-STOP
-        if control_age > WATCHDOG_TIMEOUT_S:
-            if not self.actuator_controller.is_estop_engaged():
-                logger.error(f"Control timeout ({control_age:.1f}s), engaging E-STOP")
-                self.actuator_controller.engage_estop(
-                    ESTOP_REASON_WATCHDOG,
-                    f"No control for {control_age:.1f}s"
-                )
-
-    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None):
+    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None, motor_currents: Optional[list] = None, video_stats: Optional[dict] = None):
         """
         Log status periodically.
 
         Args:
             telemetry_connected: Whether telemetry connection is active
             sensor_data: Optional sensor data (IMU, barometer) to include in status
+            motor_currents: Optional motor current data (list of 8 floats in amps)
+            video_stats: Optional video connection and frame statistics
         """
         now = time.time()
 
@@ -131,6 +116,7 @@ class WatchdogMonitor:
                 "control_connected": self.control_server.is_connected(),
                 "control_established": self.control_server.is_control_established(),
                 "control_age_ms": int(control_age * 1000),
+                "control_seq": self.control_server.get_last_control_seq(),
                 "telemetry_connected": telemetry_connected,
                 "estop_engaged": estop_info["engaged"],
                 "estop_reason": estop_info["reason"],
@@ -145,6 +131,14 @@ class WatchdogMonitor:
                 if 'barometer' in sensor_data:
                     status['barometer'] = sensor_data['barometer']
 
+            # Add motor currents if available
+            if motor_currents:
+                status['motor_currents'] = motor_currents
+
+            # Add video stats if available
+            if video_stats:
+                status['video'] = video_stats
+
             logger.info(json.dumps(status))
             self.last_status_log = now
 
@@ -152,14 +146,9 @@ class WatchdogMonitor:
         """
         Handle watchdog error.
 
-        Engages E-STOP on any watchdog error (even if watchdog is disabled).
+        E-STOP triggering disabled - only operator_command E-STOP enabled.
 
         Args:
             error: Exception that occurred
         """
         logger.error(f"Watchdog error: {error}")
-        # Engage E-STOP on watchdog error (even if watchdog is disabled, errors still trigger E-STOP)
-        self.actuator_controller.engage_estop(
-            ESTOP_REASON_INTERNAL_ERROR,
-            f"Watchdog error: {error}"
-        )

@@ -1,0 +1,219 @@
+PROOF OF BOTTLENECK - CODE EVIDENCE
+====================================
+
+This document provides direct code evidence proving where the bottleneck is.
+
+EVIDENCE 1: Telemetry IS Arriving at 10 Hz (Base Pi)
+──────────────────────────────────────────────────────
+
+File: base_pi/core/bridge_coordinator.py (lines 201-224)
+
+    def _on_telemetry_received(self, telemetry: Dict[str, Any]):
+        """Callback when telemetry is received from Robot Pi."""
+        # ... processing ...
+        
+        # Broadcast to WebSocket clients (dashboard) IMMEDIATELY
+        if self.websocket_server:
+            self.websocket_server.broadcast_telemetry_sync(telemetry)
+        
+        logger.debug(f"Broadcast sent to WebSocket clients")
+
+→ This callback is called EVERY TIME telemetry arrives
+→ Telemetry arrives at 10 Hz (0.1s intervals)
+→ WebSocket broadcast happens IMMEDIATELY (no queuing)
+→ Therefore: Dashboard receives 10 messages per second
+
+File: base_pi/telemetry_websocket.py (lines 128-141)
+
+    def broadcast_telemetry_sync(self, telemetry: dict):
+        """Synchronous wrapper for broadcast_telemetry"""
+        if self.loop and self.running:
+            asyncio.run_coroutine_threadsafe(
+                self.broadcast_telemetry(telemetry),
+                self.loop
+            )
+
+→ Uses asyncio.run_coroutine_threadsafe (non-blocking)
+→ Broadcasts happen at full 10 Hz rate
+→ No throttling at WebSocket layer
+
+EVIDENCE 2: Dashboard IS Throttling to 1 Hz
+──────────────────────────────────────────────
+
+File: dashboard/config.py (lines 64-65)
+
+    STATUS_UPDATE_INTERVAL = 1.0  # seconds - WebSocket push rate
+    STATUS_CACHE_TTL = 1.0       # seconds - Cache aggregated status
+
+→ Both set to 1.0 second
+→ DOUBLE throttling at dashboard layer
+
+EVIDENCE 3A: Cache Throttling
+──────────────────────────────
+
+File: dashboard/status_aggregator.py (lines 75-80)
+
+    def get_aggregated_status() -> Dict:
+        """Get unified system status from all available sources."""
+        global _status_cache, _cache_timestamp
+
+        # Return cached status if still valid
+        now = time.time()
+        if _status_cache and (now - _cache_timestamp) < config.STATUS_CACHE_TTL:
+            return _status_cache  # ← RETURNS STALE DATA!
+
+→ If cache is less than 1.0s old, returns CACHED DATA
+→ Ignores 90% of incoming 10 Hz updates
+→ Fresh data only every 1.0 second
+
+Timeline of 10 sensor updates within 1 cache window:
+
+    Time  0.0s: Update 1 (fresh, used to populate cache) ✓
+    Time  0.1s: Update 2 (discarded, cache still valid)   ✗
+    Time  0.2s: Update 3 (discarded, cache still valid)   ✗
+    Time  0.3s: Update 4 (discarded, cache still valid)   ✗
+    Time  0.4s: Update 5 (discarded, cache still valid)   ✗
+    Time  0.5s: Update 6 (discarded, cache still valid)   ✗
+    Time  0.6s: Update 7 (discarded, cache still valid)   ✗
+    Time  0.7s: Update 8 (discarded, cache still valid)   ✗
+    Time  0.8s: Update 9 (discarded, cache still valid)   ✗
+    Time  0.9s: Update 10 (discarded, cache still valid)  ✗
+    Time  1.0s: Cache expires, get fresh update           ✓
+
+→ Result: 1 out of 10 updates processed (90% loss)
+
+EVIDENCE 3B: Sleep Throttling
+──────────────────────────────
+
+File: dashboard/web_server.py (lines 73-94)
+
+    def status_update_worker():
+        """Background worker that pushes status updates via WebSocket"""
+        global status_update_running
+
+        logger.info("Status update worker started")
+
+        while status_update_running:
+            try:
+                # Get current status
+                status = status_aggregator.get_aggregated_status()
+
+                # Emit to all connected clients
+                socketio.emit('status_update', status, namespace='/ws/status')
+
+                # Sleep until next update
+                time.sleep(config.STATUS_UPDATE_INTERVAL)  # ← 1.0 SECOND SLEEP
+
+            except Exception as e:
+                logger.error(f"Status update worker error: {e}")
+                time.sleep(1)
+
+        logger.info("Status update worker stopped")
+
+→ Thread emits status, then sleeps 1.0 second
+→ Even if cache had fresh data, it wouldn't be sent for 1 second
+→ This is a hard limit: maximum 1 emit per second
+
+EVIDENCE 4: The Double Throttling Effect
+──────────────────────────────────────────
+
+Combining both bottlenecks:
+
+    WebSocket Input (10 Hz):   ▊▊▊▊▊▊▊▊▊▊  (10 messages/sec)
+                               │
+                               ▼
+    Cache (1.0s TTL):          ▊░░░░░░░░░  (1 data point/sec from 10)
+                               │
+                               ▼
+    Push Thread (1.0s sleep):  ▊░░░░░░░░░  (1 message/sec)
+                               │
+                               ▼
+    Frontend Display:          ▊░░░░░░░░░  (1 update/sec - jerky)
+
+Result: 90% data loss at cache + 100% push delay = 10x total slowdown
+
+EVIDENCE 5: Telemetry IS Present in Aggregator
+───────────────────────────────────────────────
+
+File: base_pi/core/bridge_coordinator.py (line 220)
+
+    if self.telemetry_buffer:
+        self.telemetry_buffer.add_sample(telemetry)
+
+→ Each 10 Hz telemetry message added to buffer
+→ Proves data is arriving at 10 Hz
+→ Proves it's being stored
+
+File: dashboard/status_aggregator.py (lines 330-334)
+
+    # Extract sensor data from logs (received via telemetry from Robot Pi)
+    if 'imu' in log_status:
+        status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
+    if 'barometer' in log_status:
+        status['sensors']['barometer'] = log_status['barometer']
+
+→ Sensor data is extracted when cache expires
+→ Data is available, just not being forwarded frequently
+
+EVIDENCE 6: No Other Bottlenecks Exist
+────────────────────────────────────────
+
+Sensor Layer (Robot Pi):
+  robot_pi/sensor_reader.py (line 95): read_interval = 0.1  ✓
+  ThreadPoolExecutor with 2+ workers (parallel IMU + Baro)   ✓
+  Timeout: 0.5s per read (fast)                             ✓
+
+Telemetry Layer (Robot Pi):
+  robot_pi/core/bridge_coordinator.py (line 332):
+    time.sleep(self.telemetry_sender.get_interval())
+  Where telemetry_sender.get_interval() = 0.1s              ✓
+
+Network Layer:
+  base_pi/telemetry_receiver.py: Authenticated TCP reception ✓
+  Timeout: 5.0s (no active throttling)                      ✓
+
+WebSocket Layer (Base Pi):
+  base_pi/telemetry_websocket.py: Immediate broadcast       ✓
+  No sleep or delay between broadcasts                      ✓
+  Async/await for non-blocking sends                        ✓
+
+Dashboard Layer:
+  dashboard/config.py (lines 64-65):
+    STATUS_UPDATE_INTERVAL = 1.0 ← BOTTLENECK HERE
+    STATUS_CACHE_TTL = 1.0 ← AND HERE
+  
+  dashboard/web_server.py (line 88):
+    time.sleep(config.STATUS_UPDATE_INTERVAL) ← AND HERE
+
+Frontend Layer:
+  dashboard/static/js/dashboard.js (lines 36-38):
+    socket.on('status_update', function(data) {
+        updateDashboard(data);
+    })
+  → Limited by upstream (dashboard layer)
+
+CONCLUSION:
+───────────
+
+The ONLY bottlenecks are in the dashboard layer:
+
+1. STATUS_CACHE_TTL = 1.0s
+   File: dashboard/config.py:65
+   Loss: 90% of updates discarded by cache
+
+2. STATUS_UPDATE_INTERVAL = 1.0s
+   File: dashboard/config.py:64
+   Loss: 100% push delay (only sends 1x/sec max)
+
+Everything upstream works perfectly at 10 Hz:
+  - Sensors read at 10 Hz ✓
+  - Telemetry sends at 10 Hz ✓
+  - Base Pi receives at 10 Hz ✓
+  - WebSocket broadcasts at 10 Hz ✓
+
+The fix is a simple config change:
+  STATUS_UPDATE_INTERVAL = 0.1  (was 1.0)
+  STATUS_CACHE_TTL = 0.05       (was 1.0)
+
+This immediately restores 10 Hz updates to the dashboard.
+

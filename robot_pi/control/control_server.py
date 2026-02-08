@@ -32,8 +32,7 @@ from common.connection_manager import (
 )
 from common.framing import SecureFramer, FramingError, AuthenticationError, ReplayError
 from common.constants import (
-    ESTOP_REASON_AUTH_FAILURE, ESTOP_REASON_DISCONNECT,
-    ESTOP_REASON_DECODE_ERROR, ESTOP_REASON_INTERNAL_ERROR
+    # E-STOP triggers disabled - only operator_command E-STOP enabled
 )
 
 logger = logging.getLogger(__name__)
@@ -237,43 +236,41 @@ class ControlServer:
                 return False
 
             except AuthenticationError as e:
-                logger.error(f"Authentication FAILED: {e}")
-                self.on_estop_trigger(ESTOP_REASON_AUTH_FAILURE, str(e))
+                logger.warning(f"Authentication failed (non-fatal): {e}")
                 self.circuit_breaker.record_failure()
                 self.close_client()
                 return False
 
             except ReplayError as e:
-                logger.error(f"Replay attack detected: {e}")
-                self.on_estop_trigger(ESTOP_REASON_AUTH_FAILURE, f"Replay: {e}")
+                logger.warning(f"Replay detected (non-fatal): {e}")
                 self.circuit_breaker.record_failure()
                 self.close_client()
                 return False
 
             except FramingError as e:
                 logger.error(f"Framing error: {e}")
-                self.on_estop_trigger(ESTOP_REASON_DECODE_ERROR, str(e))
+                # E-STOP on decode error disabled - only operator_command E-STOP enabled
                 self.circuit_breaker.record_failure()
                 self.close_client()
                 return False
 
             except ConnectionError as e:
                 logger.warning(f"Control connection lost: {e}")
-                self.on_estop_trigger(ESTOP_REASON_DISCONNECT, str(e))
+                # E-STOP on disconnect disabled - only operator_command E-STOP enabled
                 self.circuit_breaker.record_failure()
                 self.close_client()
                 return False
 
             except UnicodeDecodeError as e:
                 logger.error(f"Unicode decode error: {e}")
-                self.on_estop_trigger(ESTOP_REASON_DECODE_ERROR, str(e))
+                # E-STOP on decode error disabled - only operator_command E-STOP enabled
                 self.circuit_breaker.record_failure()
                 self.close_client()
                 return False
 
         except Exception as e:
             logger.error(f"Unexpected error receiving command: {e}")
-            self.on_estop_trigger(ESTOP_REASON_INTERNAL_ERROR, str(e))
+            # E-STOP on internal error disabled - only operator_command E-STOP enabled
             self.circuit_breaker.record_failure()
             self.close_client()
             return False

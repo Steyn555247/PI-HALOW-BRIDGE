@@ -130,7 +130,7 @@ def _collect_robot_status() -> Dict:
                 'direction': 'tx',
             },
             'video': {
-                'state': 'unknown',
+                'state': 'unknown',  # Will be updated from video stats below
                 'direction': 'tx',
             },
         }
@@ -173,6 +173,38 @@ def _collect_robot_status() -> Dict:
             status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
         if 'barometer' in log_status:
             status['sensors']['barometer'] = log_status['barometer']
+
+        # Extract motor currents from logs
+        if 'motor_currents' in log_status:
+            status['actuators']['motor_currents'] = log_status['motor_currents']
+
+        # Extract video stats from logs
+        if 'video' in log_status:
+            video_stats = log_status['video']
+            video_connected = video_stats.get('connected', False)
+
+            # Update video connection state
+            status['connections']['video'] = {
+                'state': 'connected' if video_connected else 'disconnected',
+                'direction': 'tx',
+            }
+
+            # Update video data flow
+            status['data_flow']['video_tx'] = {
+                'connected': video_connected,
+                'frames_sent': video_stats.get('frames_sent', 0),
+                'frames_dropped': video_stats.get('frames_dropped', 0),
+                'drop_rate': video_stats.get('drop_rate', 0.0),
+            }
+
+            # Update video details
+            status['video'] = {
+                'frames_sent': video_stats.get('frames_sent', 0),
+                'frames_dropped': video_stats.get('frames_dropped', 0),
+                'drop_rate': video_stats.get('drop_rate', 0.0),
+                'camera_errors': video_stats.get('camera_errors', 0),
+                'active_camera': video_stats.get('active_camera_id', 0),
+            }
     else:
         # No recent logs - service may be down
         _unknown = {'state': 'unknown'}
