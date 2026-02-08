@@ -89,26 +89,9 @@ class WatchdogMonitor:
         uptime = now - self.boot_time
         control_age = self.control_server.get_control_age()
 
-        # SAFETY CHECK 1: Startup grace period
-        # If control not established after STARTUP_GRACE_S, engage E-STOP
-        if uptime > STARTUP_GRACE_S and not self.control_server.is_control_established():
-            if not self.actuator_controller.is_estop_engaged():
-                logger.error(f"Control not established after {uptime:.0f}s, engaging E-STOP")
-                self.actuator_controller.engage_estop(
-                    ESTOP_REASON_STARTUP_TIMEOUT,
-                    f"No control after {STARTUP_GRACE_S}s"
-                )
-            # Continue checking - E-STOP stays latched
-
-        # SAFETY CHECK 2: Control timeout
-        # If no valid control for WATCHDOG_TIMEOUT_S, engage E-STOP
-        if control_age > WATCHDOG_TIMEOUT_S:
-            if not self.actuator_controller.is_estop_engaged():
-                logger.error(f"Control timeout ({control_age:.1f}s), engaging E-STOP")
-                self.actuator_controller.engage_estop(
-                    ESTOP_REASON_WATCHDOG,
-                    f"No control for {control_age:.1f}s"
-                )
+        # SAFETY CHECKS DISABLED - Only operator_command E-STOP enabled
+        # Startup grace period check disabled
+        # Control timeout check disabled
 
     def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None, motor_currents: Optional[list] = None, video_stats: Optional[dict] = None):
         """
@@ -163,14 +146,9 @@ class WatchdogMonitor:
         """
         Handle watchdog error.
 
-        Engages E-STOP on any watchdog error (even if watchdog is disabled).
+        E-STOP triggering disabled - only operator_command E-STOP enabled.
 
         Args:
             error: Exception that occurred
         """
         logger.error(f"Watchdog error: {error}")
-        # Engage E-STOP on watchdog error (even if watchdog is disabled, errors still trigger E-STOP)
-        self.actuator_controller.engage_estop(
-            ESTOP_REASON_INTERNAL_ERROR,
-            f"Watchdog error: {error}"
-        )

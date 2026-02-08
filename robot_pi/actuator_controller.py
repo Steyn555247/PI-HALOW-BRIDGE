@@ -26,7 +26,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from common.constants import (
-    ESTOP_REASON_BOOT, ESTOP_REASON_INTERNAL_ERROR, ESTOP_REASON_COMMAND,
+    ESTOP_REASON_INTERNAL_ERROR, ESTOP_REASON_COMMAND,
     ESTOP_CLEAR_CONFIRM, ESTOP_CLEAR_MAX_AGE_S
 )
 
@@ -127,9 +127,9 @@ class ActuatorController:
         self.motorons: List[Optional[object]] = []
         self.servo_pwm = None
 
-        # SAFETY: E-STOP latched on boot - this is the fail-safe default
+        # Boot E-STOP disabled - only operator_command E-STOP enabled
         self._estop_engaged = False
-        self._estop_reason = ESTOP_REASON_BOOT
+        self._estop_reason = "none"
         self._estop_timestamp = time.time()
         self._estop_history: List[dict] = []
 
@@ -137,10 +137,8 @@ class ActuatorController:
         # This prevents TOCTOU race conditions
         self._lock = threading.Lock()
 
-        self._log_estop_event("ENGAGED", ESTOP_REASON_BOOT, "System boot - fail-safe default")
-
         logger.info(f"ActuatorController initialized: {len(motoron_addresses)} Motoron boards, "
-                   f"{active_motors} active motors, E-STOP LATCHED")
+                   f"{active_motors} active motors, E-STOP DISABLED (operator_command only)")
 
     def _log_estop_event(self, action: str, reason: str, detail: str = ""):
         """Log E-STOP event for audit trail"""

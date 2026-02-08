@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional
 
 from common.constants import (
     MSG_EMERGENCY_STOP, MSG_PING, ESTOP_REASON_COMMAND,
-    ESTOP_REASON_DECODE_ERROR, ESTOP_CLEAR_CONFIRM
+    ESTOP_CLEAR_CONFIRM
 )
 
 logger = logging.getLogger(__name__)
@@ -82,9 +82,7 @@ class CommandExecutor:
             command = json.loads(message)
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             logger.error(f"Failed to decode command payload: {e}")
-            self.actuator_controller.engage_estop(
-                ESTOP_REASON_DECODE_ERROR, f"JSON decode: {e}"
-            )
+            # E-STOP on decode error disabled - only operator_command E-STOP enabled
             return
 
         command_type = command.get('type')

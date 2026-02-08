@@ -1,0 +1,187 @@
+TELEMETRY DATA FLOW - BOTTLENECK ANALYSIS
+==========================================
+
+1. SENSOR LAYER (Robot Pi)
+   ┌─────────────────────────┐
+   │ BNO055 IMU (I2C 0x28)  │
+   └──────────────┬──────────┘
+                  │ 10 Hz (0.1s)
+                  │ parallel read
+   ┌──────────────┴──────────┐
+   │ BMP581 Barometer (0x47) │
+   └──────────────┬──────────┘
+                  │
+   ┌──────────────▼──────────┐
+   │  sensor_reader.py       │
+   │  ThreadPoolExecutor     │  ← Parallel reads (good!)
+   │  read_interval = 0.1s   │
+   │  Max latency: 150ms     │
+   └──────────────┬──────────┘
+                  │
+                  ▼
+2. TELEMETRY SENDER (Robot Pi)
+   ┌─────────────────────────────┐
+   │ bridge_coordinator.py       │
+   │ _telemetry_sender_loop()    │  ← 10 Hz transmission
+   │ telemetry_interval = 0.1s   │
+   │ TCP to Base Pi:5003         │
+   │ Rate: 100 msgs/sec          │
+   └──────────────┬──────────────┘
+                  │
+                  │ TCP/authenticated
+                  │
+                  ▼
+3. NETWORK TRANSMISSION
+   ┌──────────────────────────────┐
+   │ Robot Pi → Base Pi            │
+   │ 192.168.1.20 → 192.168.1.10  │
+   │ Rate: 10 Hz (0.1s)            │
+   │ Latency: ~1-5ms (LAN)         │
+   └──────────────┬────────────────┘
+                  │
+                  ▼
+4. TELEMETRY RECEIVER (Base Pi)
+   ┌──────────────────────────────┐
+   │ telemetry_receiver.py        │
+   │ _receive_loop()              │  ← 10 Hz reception
+   │ Callback: _on_telemetry_     │
+   │  received()                  │
+   │ Rate: 100 msgs/sec           │
+   └──────────────┬────────────────┘
+                  │
+                  ▼
+5. WEBSOCKET BROADCAST (Base Pi)
+   ┌──────────────────────────────────┐
+   │ bridge_coordinator.py            │
+   │ _on_telemetry_received()         │
+   │ websocket_server.broadcast_      │  ← IMMEDIATE broadcast
+   │  telemetry_sync()                │     Rate: 10 Hz
+   │ async/await emission             │
+   │ Rate: 100 msgs/sec (to browser)  │
+   └──────────────┬────────────────────┘
+                  │
+      ════════════╩════════════════════════════════════
+      ║  FAST PATH ENDS HERE - Data IS at 10 Hz!     ║
+      ║  ⬇️  NOW ENTERING DASHBOARD LAYER             ║
+      ═════════════════════════════════════════════════
+                  │
+                  ▼
+6. DASHBOARD STATUS AGGREGATOR ❌ BOTTLENECK #1
+   ┌──────────────────────────────────────┐
+   │ status_aggregator.py                 │
+   │ get_aggregated_status()              │
+   │                                      │
+   │ CACHE LOGIC:                         │
+   │ if time < (last_time + 1.0s):        │  ← Returns stale data!
+   │     return cached_status             │
+   │ else:                                │
+   │     collect fresh status             │
+   │     cache for next 1.0s              │
+   │                                      │
+   │ STATUS_CACHE_TTL = 1.0s              │  ← Problem: Wastes 90% of data
+   └──────────────┬───────────────────────┘
+                  │
+   ⚠️  Out of every 10 sensor updates,
+       we only process 1 in the dashboard!
+                  │
+                  ▼
+7. DASHBOARD STATUS PUSH THREAD ❌ BOTTLENECK #2
+   ┌──────────────────────────────────────┐
+   │ web_server.py                        │
+   │ status_update_worker()               │
+   │                                      │
+   │ PUSH LOOP:                           │
+   │ while running:                       │
+   │     status = get_aggregated_status() │
+   │     emit('status_update', status)    │
+   │     time.sleep(1.0)  ← WAITS 1 SEC!  │  ← Problem: Only sends 1x/sec
+   │                                      │
+   │ STATUS_UPDATE_INTERVAL = 1.0s        │
+   └──────────────┬───────────────────────┘
+                  │
+                  │ WebSocket to browser @ 1 Hz
+                  │
+                  ▼
+8. FRONTEND WEBSOCKET RECEPTION
+   ┌──────────────────────────────┐
+   │ dashboard.js                 │
+   │ socket.on('status_update')   │
+   │ updateDashboard(data)        │  ← Updates at 1 Hz only
+   │ updateSensors(status.sensors)│
+   │                              │
+   │ Rate: 1 update/sec max       │
+   └──────────────┬────────────────┘
+                  │
+                  ▼
+9. BROWSER RENDERING
+   ┌──────────────────────────────┐
+   │ HTML DOM Update              │
+   │ Display IMU/Barometer data   │  ← USER SEES 1 update/sec
+   │ rate: 1 Hz (jumpy feel)      │
+   └──────────────────────────────┘
+
+
+BOTTLENECK LOCATIONS:
+═════════════════════════════════════════════════════════
+
+Stage 5: STATUS_CACHE_TTL = 1.0 second
+─────────────────────────────────────────
+Impact: Returns cached data for up to 1 second
+Result: Loses 90% of sensor updates (9 out of 10 discarded)
+
+
+Stage 7: STATUS_UPDATE_INTERVAL = 1.0 second
+──────────────────────────────────────────────
+Impact: Sleep between sends means data arrives but isn't forwarded
+Result: Even if cached data were fresh, it's only sent once per second
+
+
+DOUBLE THROTTLING EFFECT:
+─────────────────────────
+10 Hz upstream data → 1 Hz cache → 1 Hz push → 1 Hz display
+                    (90% loss)    (100% holdback)
+
+
+THE QUICK FIX (3 LINES OF CODE):
+═════════════════════════════════════════════════════════
+
+File: dashboard/config.py
+
+Line 64:  STATUS_UPDATE_INTERVAL = 0.1   # Changed from 1.0
+Line 65:  STATUS_CACHE_TTL = 0.05        # Changed from 1.0
+
+Impact: 10x improvement in dashboard responsiveness
+        Matches sensor update rate (10 Hz)
+        Frontend still renders at human-readable rate
+
+
+BEFORE FIX:
+──────────
+Sensor Data:      ▊▊▊▊▊▊▊▊▊▊  (10 Hz - 10 updates/sec)
+Dashboard Cache:  ▊░░░░░░░░░  (1 Hz - 1 data point/sec)
+Browser Rendering:▊░░░░░░░░░  (1 Hz - jerky display)
+
+
+AFTER FIX:
+──────────
+Sensor Data:      ▊▊▊▊▊▊▊▊▊▊  (10 Hz)
+Dashboard Cache:  ▊▊▊▊▊▊▊▊▊▊  (10 Hz)
+Browser Rendering:▊▊▊▊▊▊▊▊▊▊  (10 Hz - smooth!)
+
+
+FILE LOCATIONS FOR FIX:
+═══════════════════════
+
+1. dashboard/config.py (Lines 64-65)
+   - STATUS_UPDATE_INTERVAL = 1.0 → 0.1
+   - STATUS_CACHE_TTL = 1.0 → 0.05
+
+2. dashboard/static/js/dashboard.js (Optional debouncing)
+   - Add update throttling to prevent DOM thrashing
+   - Recommend 50-100ms debounce window
+
+3. Test points:
+   - journalctl -u serpent-dashboard.service -f
+   - Monitor: "Status update" frequency
+   - Browser console: "Update received at" timestamps
+
