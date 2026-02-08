@@ -190,6 +190,10 @@ class CommandExecutor:
         """
         Handle gamepad input event.
 
+        Button Mapping:
+        - Button A (0): Motor 0 UP/FORWARD (claw open)
+        - Button B (1): Motor 0 DOWN/BACKWARD (claw close)
+
         Args:
             data: Input event data dictionary
         """
@@ -207,24 +211,21 @@ class CommandExecutor:
                     self.actuator_controller.set_motor_speed(1, speed)
 
             elif event_type == 'button':
-                # A button (index 0): Motor 0 forward
+                # A button (index 0): Motor 0 UP/FORWARD (claw open)
                 if index == 0:
                     if value > 0:
-                        self.actuator_controller.set_motor_speed(0, 760)  # 95% forward
+                        logger.info("A button: Motor 0 UP (claw open)")
+                        self.actuator_controller.set_motor_speed(0, 760)  # 95% forward/up
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
-                # Y button (index 3): Motor 0 backward
-                elif index == 3:
+
+                # B button (index 1): Motor 0 DOWN/BACKWARD (claw close)
+                elif index == 1:
                     if value > 0:
-                        self.actuator_controller.set_motor_speed(0, -760)  # 95% backward
+                        logger.info("B button: Motor 0 DOWN (claw close)")
+                        self.actuator_controller.set_motor_speed(0, -760)  # 95% backward/down
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
-                # B button (index 1): Servo position 0 (legacy)
-                elif index == 1 and value > 0:
-                    self.actuator_controller.set_servo_position(0.0)
-                # X button (index 2): Servo position 1 (legacy)
-                elif index == 2 and value > 0:
-                    self.actuator_controller.set_servo_position(1.0)
 
         except (ValueError, TypeError) as e:
             logger.warning(f"Invalid input_event data: {e}")
