@@ -210,6 +210,170 @@
             </div>
         </div>
 
+        <!-- Controller Input Display (Base Pi only) -->
+        {% if role == 'base_pi' %}
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="accordion" id="controllerAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#controllerBody">
+                                🎮 Controller Input (TrimUI)
+                            </button>
+                        </h2>
+                        <div id="controllerBody" class="accordion-collapse collapse" data-bs-parent="#controllerAccordion">
+                            <div class="accordion-body">
+                                <p class="text-muted small mb-3">Real-time button press visualization from TrimUI controller</p>
+
+                                <!-- Face Buttons -->
+                                <div class="controller-section mb-4">
+                                    <h6>Face Buttons</h6>
+                                    <div class="button-grid">
+                                        <div class="controller-button" id="btn-0" data-index="0">
+                                            <span class="button-label">A (0)</span>
+                                            <span class="button-function">Claw Open</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-1" data-index="1">
+                                            <span class="button-label">B (1)</span>
+                                            <span class="button-function">Claw Close</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-2" data-index="2">
+                                            <span class="button-label">X (2)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-3" data-index="3">
+                                            <span class="button-label">Y (3)</span>
+                                            <span class="button-function">E-STOP</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Shoulder Buttons -->
+                                <div class="controller-section mb-4">
+                                    <h6>Shoulder Buttons</h6>
+                                    <div class="button-grid">
+                                        <div class="controller-button" id="btn-4" data-index="4">
+                                            <span class="button-label">L1 (4)</span>
+                                            <span class="button-function">Camera Prev</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-5" data-index="5">
+                                            <span class="button-label">R1 (5)</span>
+                                            <span class="button-function">Camera Next</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-6" data-index="6">
+                                            <span class="button-label">L2 (6)</span>
+                                            <span class="button-function">Chainsaw 1 On/Off</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-7" data-index="7">
+                                            <span class="button-label">R2 (7)</span>
+                                            <span class="button-function">Chainsaw 2 On/Off</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- System Buttons -->
+                                <div class="controller-section mb-4">
+                                    <h6>System Buttons</h6>
+                                    <div class="button-grid">
+                                        <div class="controller-button" id="btn-8" data-index="8">
+                                            <span class="button-label">SELECT (8)</span>
+                                            <span class="button-function">Dashboard</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-9" data-index="9">
+                                            <span class="button-label">START (9)</span>
+                                            <span class="button-function">Menu</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-14" data-index="14">
+                                            <span class="button-label">L3 (14)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-15" data-index="15">
+                                            <span class="button-label">R3 (15)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- D-Pad -->
+                                <div class="controller-section mb-4">
+                                    <h6>D-Pad</h6>
+                                    <div class="button-grid">
+                                        <div class="controller-button" id="btn-10" data-index="10">
+                                            <span class="button-label">Up (10)</span>
+                                            <span class="button-function">Climb Up</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-11" data-index="11">
+                                            <span class="button-label">Down (11)</span>
+                                            <span class="button-function">Climb Down</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-12" data-index="12">
+                                            <span class="button-label">Left (12)</span>
+                                            <span class="button-function">Traverse Left</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-13" data-index="13">
+                                            <span class="button-label">Right (13)</span>
+                                            <span class="button-function">Traverse Right</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Left Stick -->
+                                <div class="controller-section mb-4">
+                                    <h6>Left Stick (Chainsaw 1)</h6>
+                                    <div class="button-grid">
+                                        <div class="controller-button" id="btn-16" data-index="16">
+                                            <span class="button-label">Up (16)</span>
+                                            <span class="button-function">Chainsaw 1 Up</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-17" data-index="17">
+                                            <span class="button-label">Down (17)</span>
+                                            <span class="button-function">Chainsaw 1 Down</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-18" data-index="18">
+                                            <span class="button-label">Left (18)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-19" data-index="19">
+                                            <span class="button-label">Right (19)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Right Stick -->
+                                <div class="controller-section mb-4">
+                                    <h6>Right Stick (Chainsaw 2)</h6>
+                                    <div class="button-grid">
+                                        <div class="controller-button" id="btn-20" data-index="20">
+                                            <span class="button-label">Up (20)</span>
+                                            <span class="button-function">Chainsaw 2 Up</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-21" data-index="21">
+                                            <span class="button-label">Down (21)</span>
+                                            <span class="button-function">Chainsaw 2 Down</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-22" data-index="22">
+                                            <span class="button-label">Left (22)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                        <div class="controller-button" id="btn-23" data-index="23">
+                                            <span class="button-label">Right (23)</span>
+                                            <span class="button-function">Available</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-info mt-3" role="alert">
+                                    <small><strong>Live Input:</strong> Buttons will highlight in green when pressed. This shows real-time input from the TrimUI controller.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Sensors (collapsed accordion) -->
         <div class="row mb-3">
             <div class="col-12">
@@ -310,7 +474,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <!-- Pass role to JS -->
-    <script>const DASHBOARD_ROLE = '{{ role }}';</script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script>window.DASHBOARD_ROLE = '{{ role }}';</script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ range(1, 9999999) | random }}"></script>
 </body>
 </html>

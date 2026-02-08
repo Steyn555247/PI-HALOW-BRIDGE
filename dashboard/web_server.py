@@ -12,6 +12,7 @@ from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import threading
 import time
+import socketio as socketio_client
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -54,6 +55,7 @@ if config.ENABLE_DIRECT_INSPECTION and config.DASHBOARD_ROLE == 'robot_pi':
 # Create Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'serpent-dashboard-secret-key'
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for static files
 CORS(app)
 
 # Create SocketIO instance
@@ -62,6 +64,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 # Background thread for status updates
 status_update_thread = None
 status_update_running = False
+
+# Socket.IO client to connect to backend (for Base Pi only)
+backend_client = None
+backend_client_connected = False
 
 
 def status_update_worker():
@@ -88,6 +94,48 @@ def status_update_worker():
     logger.info("Status update worker stopped")
 
 
+def connect_to_backend():
+    """Connect to backend Socket.IO server to receive input events (Base Pi only)"""
+    global backend_client, backend_client_connected
+
+    if config.DASHBOARD_ROLE != 'base_pi':
+        logger.info("Not on Base Pi - skipping backend connection")
+        return
+
+    try:
+        backend_client = socketio_client.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=2)
+
+        @backend_client.on('connect')
+        def on_backend_connect():
+            global backend_client_connected
+            backend_client_connected = True
+            logger.info("Connected to backend Socket.IO server at localhost:5000")
+
+        @backend_client.on('disconnect')
+        def on_backend_disconnect():
+            global backend_client_connected
+            backend_client_connected = False
+            logger.warning("Disconnected from backend Socket.IO server")
+
+        @backend_client.on('input_event')
+        def on_input_event(data):
+            """Forward input events from backend to dashboard clients"""
+            try:
+                # Forward to all dashboard WebSocket clients
+                socketio.emit('input_event', data, namespace='/ws/status')
+                logger.debug(f"Forwarded input_event: button {data.get('index')} = {data.get('value')}")
+            except Exception as e:
+                logger.error(f"Failed to forward input_event: {e}")
+
+        # Connect to backend
+        backend_client.connect('http://localhost:5000', wait_timeout=10)
+        logger.info("Backend client connection initiated")
+
+    except Exception as e:
+        logger.error(f"Failed to connect to backend Socket.IO: {e}")
+        backend_client = None
+
+
 def start_status_updates():
     """Start the background status update thread"""
     global status_update_thread, status_update_running
@@ -104,6 +152,14 @@ def stop_status_updates():
     global status_update_running
     status_update_running = False
     logger.info("Status update thread stopping")
+
+
+def disconnect_from_backend():
+    """Disconnect from backend Socket.IO server"""
+    global backend_client
+    if backend_client and backend_client.connected:
+        backend_client.disconnect()
+        logger.info("Disconnected from backend Socket.IO server")
 
 
 # ============================================================================
@@ -432,6 +488,12 @@ if __name__ == '__main__':
     # Start background status updates
     start_status_updates()
 
+    # Connect to backend to receive input events (Base Pi only)
+    if config.DASHBOARD_ROLE == 'base_pi':
+        # Start in a separate thread to avoid blocking
+        backend_thread = threading.Thread(target=connect_to_backend, daemon=True)
+        backend_thread.start()
+
     try:
         # Run Flask-SocketIO server
         socketio.run(
@@ -444,3 +506,4 @@ if __name__ == '__main__':
         )
     finally:
         stop_status_updates()
+        disconnect_from_backend()

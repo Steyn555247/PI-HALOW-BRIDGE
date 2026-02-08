@@ -1,5 +1,11 @@
 // SERPENT Connectivity Dashboard JavaScript
 
+// Dashboard role - check if defined globally, otherwise default to 'base_pi'
+// (This makes the dashboard work even if the template doesn't set DASHBOARD_ROLE)
+if (typeof DASHBOARD_ROLE === 'undefined') {
+    window.DASHBOARD_ROLE = 'base_pi';
+}
+
 // WebSocket connection
 let socket = null;
 let reconnectAttempts = 0;
@@ -29,6 +35,10 @@ function connectWebSocket() {
 
     socket.on('status_update', function(data) {
         updateDashboard(data);
+    });
+
+    socket.on('input_event', function(data) {
+        updateControllerInput(data);
     });
 
     socket.on('error', function(error) {
@@ -370,6 +380,47 @@ function displayIssues(issues) {
     }
 
     container.innerHTML = html;
+}
+
+// ============================================================================
+// Controller Input Display
+// ============================================================================
+
+// Button state tracking for auto-release
+const buttonStates = {};
+const buttonReleaseTimers = {};
+
+function updateControllerInput(data) {
+    if (!data || data.type !== 'button') return;
+
+    const index = data.index;
+    const pressed = data.value === 1;
+
+    const buttonEl = document.getElementById(`btn-${index}`);
+    if (!buttonEl) return;
+
+    // Clear any existing release timer
+    if (buttonReleaseTimers[index]) {
+        clearTimeout(buttonReleaseTimers[index]);
+        delete buttonReleaseTimers[index];
+    }
+
+    if (pressed) {
+        // Button pressed - highlight green
+        buttonEl.classList.add('pressed');
+        buttonStates[index] = true;
+
+        // Auto-release after 300ms if no release event received
+        buttonReleaseTimers[index] = setTimeout(() => {
+            buttonEl.classList.remove('pressed');
+            buttonStates[index] = false;
+            delete buttonReleaseTimers[index];
+        }, 300);
+    } else {
+        // Button released - remove highlight
+        buttonEl.classList.remove('pressed');
+        buttonStates[index] = false;
+    }
 }
 
 // ============================================================================
