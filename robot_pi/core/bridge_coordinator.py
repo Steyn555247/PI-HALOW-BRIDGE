@@ -129,7 +129,8 @@ class HaLowBridge:
             port=config.CONTROL_PORT,
             framer=self.framer,
             on_command_received=self._on_command_received,
-            on_estop_trigger=self._on_estop_trigger
+            on_estop_trigger=self._on_estop_trigger,
+            on_auth_success=self._on_auth_success
         )
 
         self.telemetry_sender = TelemetrySender(
@@ -176,6 +177,18 @@ class HaLowBridge:
             message: E-STOP message
         """
         self.actuator_controller.engage_estop(reason_code, message)
+
+    def _on_auth_success(self):
+        """
+        Callback when authentication succeeds.
+
+        Automatically clears auth_failure E-STOP if it's currently engaged,
+        since successful authentication means the auth_failure condition is resolved.
+        """
+        estop_info = self.actuator_controller.get_estop_info()
+        if estop_info['engaged'] and estop_info['reason'] == 'auth_failure':
+            logger.info("Auth succeeded - auto-clearing auth_failure E-STOP")
+            self.actuator_controller.clear_estop_local()
 
     def start(self):
         """Start the bridge. E-STOP remains engaged until explicitly cleared."""

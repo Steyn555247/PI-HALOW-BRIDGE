@@ -51,7 +51,8 @@ class ControlServer:
         port: int,
         framer: SecureFramer,
         on_command_received: Callable[[bytes, int], None],
-        on_estop_trigger: Callable[[str, str], None]
+        on_estop_trigger: Callable[[str, str], None],
+        on_auth_success: Optional[Callable[[], None]] = None
     ):
         """
         Initialize control server.
@@ -61,11 +62,13 @@ class ControlServer:
             framer: SecureFramer instance for authenticated framing
             on_command_received: Callback(payload, seq) when command received
             on_estop_trigger: Callback(reason_code, message) to trigger E-STOP
+            on_auth_success: Optional callback when authentication succeeds (for clearing auth_failure E-STOP)
         """
         self.port = port
         self.framer = framer
         self.on_command_received = on_command_received
         self.on_estop_trigger = on_estop_trigger
+        self.on_auth_success = on_auth_success
 
         # Server socket
         self.server_socket: Optional[socket.socket] = None
@@ -222,6 +225,10 @@ class ControlServer:
 
                 # Record success for circuit breaker
                 self.circuit_breaker.record_success()
+
+                # Notify auth success (for clearing auth_failure E-STOP)
+                if self.on_auth_success:
+                    self.on_auth_success()
 
                 return True
 

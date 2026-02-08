@@ -190,11 +190,9 @@ class CommandExecutor:
         """
         Handle gamepad input event.
 
-        Updated mapping for custom button layout:
-        - Button 0 (A): Claw Open (Motor 0 up)
-        - Button 1 (B): Claw Close (Motor 0 down)
-        - Button 3 (Y): E-STOP (handled by backend)
-        - Other buttons: See CUSTOM_BUTTON_MAPPING.md
+        Button Mapping:
+        - Button A (0): Motor 0 UP/FORWARD (claw open)
+        - Button B (1): Motor 0 DOWN/BACKWARD (claw close)
 
         Args:
             data: Input event data dictionary
@@ -205,7 +203,6 @@ class CommandExecutor:
 
         try:
             if event_type == 'axis':
-                # Legacy axis support (not used in current mapping)
                 if index == 0:
                     speed = int(float(value) * 800)
                     self.actuator_controller.set_motor_speed(0, speed)
@@ -214,29 +211,21 @@ class CommandExecutor:
                     self.actuator_controller.set_motor_speed(1, speed)
 
             elif event_type == 'button':
-                # === CLAW CONTROLS (Motor 0) ===
-                # A button (index 0): Claw Open - Motor 0 up (positive)
+                # A button (index 0): Motor 0 UP/FORWARD (claw open)
                 if index == 0:
                     if value > 0:
-                        logger.info("Claw OPEN command - Motor 0 UP")
-                        self.actuator_controller.set_motor_speed(0, 760)  # 95% forward (up)
+                        logger.info("A button: Motor 0 UP (claw open)")
+                        self.actuator_controller.set_motor_speed(0, 760)  # 95% forward/up
                     else:
-                        logger.debug("Claw OPEN released - Motor 0 STOP")
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
-                # B button (index 1): Claw Close - Motor 0 down (negative)
+                # B button (index 1): Motor 0 DOWN/BACKWARD (claw close)
                 elif index == 1:
                     if value > 0:
-                        logger.info("Claw CLOSE command - Motor 0 DOWN")
-                        self.actuator_controller.set_motor_speed(0, -760)  # 95% backward (down)
+                        logger.info("B button: Motor 0 DOWN (claw close)")
+                        self.actuator_controller.set_motor_speed(0, -760)  # 95% backward/down
                     else:
-                        logger.debug("Claw CLOSE released - Motor 0 STOP")
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
-
-                # === PLACEHOLDER FOR FUTURE CONTROLS ===
-                # Button 2 (X): Available
-                # Button 3 (Y): E-STOP (handled by backend, not here)
-                # Buttons 4-23: See backend handle_input_event() for mapping
 
         except (ValueError, TypeError) as e:
             logger.warning(f"Invalid input_event data: {e}")
