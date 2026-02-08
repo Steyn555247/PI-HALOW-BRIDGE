@@ -1,0 +1,3 @@
+Fixing PSK drop-in format... echo [Service]
+Environment="SERPENT_PSK_HEX=1deefbb6fd8b1c5684c6481733c6fc6ff88c00262470464533354b73efbdb6f1"
+Environment="ROBOT_PI_IP=192.168.1.20"

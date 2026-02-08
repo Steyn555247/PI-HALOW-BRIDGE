@@ -1,0 +1,26 @@
+[Unit]
+Description=SERPENT Base Dashboard
+After=network.target serpent-base-bridge.service
+Wants=serpent-base-bridge.service
+
+[Service]
+Type=simple
+User=serpentbase
+Group=serpentbase
+WorkingDirectory=/home/serpentbase/PI-HALOW-BRIDGE/dashboard
+Environment="DASHBOARD_ROLE=base_pi"
+Environment="DASHBOARD_PORT=5006"
+Environment="ENABLE_DIRECT_INSPECTION=True"
+Environment="ENABLE_SERVICE_CONTROL=True"
+Environment="DISABLE_WATCHDOG_FOR_LOCAL_TESTING=False"
+Environment="PYTHONUNBUFFERED=1"
+# Inherit PSK from bridge service
+EnvironmentFile=-/etc/systemd/system/serpent-base-bridge.service.d/psk.conf
+ExecStart=/home/serpentbase/PI-HALOW-BRIDGE/venv/bin/python3 /home/serpentbase/PI-HALOW-BRIDGE/dashboard/web_server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
