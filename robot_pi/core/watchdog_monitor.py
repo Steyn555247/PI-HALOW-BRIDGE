@@ -110,13 +110,15 @@ class WatchdogMonitor:
                     f"No control for {control_age:.1f}s"
                 )
 
-    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None):
+    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None, motor_currents: Optional[list] = None, video_stats: Optional[dict] = None):
         """
         Log status periodically.
 
         Args:
             telemetry_connected: Whether telemetry connection is active
             sensor_data: Optional sensor data (IMU, barometer) to include in status
+            motor_currents: Optional motor current data (list of 8 floats in amps)
+            video_stats: Optional video connection and frame statistics
         """
         now = time.time()
 
@@ -131,6 +133,7 @@ class WatchdogMonitor:
                 "control_connected": self.control_server.is_connected(),
                 "control_established": self.control_server.is_control_established(),
                 "control_age_ms": int(control_age * 1000),
+                "control_seq": self.control_server.get_last_control_seq(),
                 "telemetry_connected": telemetry_connected,
                 "estop_engaged": estop_info["engaged"],
                 "estop_reason": estop_info["reason"],
@@ -144,6 +147,14 @@ class WatchdogMonitor:
                     status['imu'] = sensor_data['imu']
                 if 'barometer' in sensor_data:
                     status['barometer'] = sensor_data['barometer']
+
+            # Add motor currents if available
+            if motor_currents:
+                status['motor_currents'] = motor_currents
+
+            # Add video stats if available
+            if video_stats:
+                status['video'] = video_stats
 
             logger.info(json.dumps(status))
             self.last_status_log = now

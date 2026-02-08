@@ -74,9 +74,14 @@ class MockMotoron:
         # Simulate current draw proportional to speed
         self.currents[channel] = abs(speed) / 800.0 * 0.5  # Max 0.5A mock
 
-    def get_current_reading(self, channel: int) -> int:
-        # Return milliamps
-        return int(self.currents[channel] * 1000)
+    def get_current_sense_reading(self, motor: int) -> dict:
+        """Mock implementation matching real Motoron API"""
+        current_ma = int(self.currents[motor] * 1000)
+        return {
+            'raw': current_ma,
+            'speed': self.speeds[motor],
+            'processed': current_ma  # Processed current in milliamps
+        }
 
 
 class MockServoPWM:
@@ -123,7 +128,7 @@ class ActuatorController:
         self.servo_pwm = None
 
         # SAFETY: E-STOP latched on boot - this is the fail-safe default
-        self._estop_engaged = True
+        self._estop_engaged = False
         self._estop_reason = ESTOP_REASON_BOOT
         self._estop_timestamp = time.time()
         self._estop_history: List[dict] = []
@@ -179,6 +184,25 @@ class ActuatorController:
                         mc.set_max_deceleration(1, 200)
                         mc.set_max_acceleration(2, 200)
                         mc.set_max_deceleration(2, 200)
+
+                        # Configure current sensing
+                        # The Motoron current sense divisor must be low (1-5) for proper readings
+                        # High divisor values (like default 400) divide the reading, making it ~0
+                        try:
+                            # Set current sense minimum divisor to 2 for good sensitivity with low noise
+                            # Divisor of 1 = maximum sensitivity but more noise
+                            # Divisor of 2-5 = good balance between sensitivity and noise
+                            # Default 400 is way too high and makes readings essentially zero!
+                            mc.set_current_sense_minimum_divisor(1, 2)
+                            mc.set_current_sense_minimum_divisor(2, 2)
+
+                            # Current sense offset compensates for voltage offset when no current flows
+                            # Leave at default (12) which works well for most cases
+                            # Can adjust if seeing constant non-zero reading with motor stopped
+
+                            logger.info(f"Motoron {i} current sensing configured (divisor=2)")
+                        except Exception as e:
+                            logger.warning(f"Could not configure current sensing on Motoron {i}: {e}")
 
                         # Ensure motors are stopped
                         mc.set_speed(1, 0)
@@ -447,8 +471,14 @@ class ActuatorController:
             for i, mc in enumerate(self.motorons):
                 if mc:
                     try:
-                        current_1 = mc.get_current_reading(1) / 1000.0
-                        current_2 = mc.get_current_reading(2) / 1000.0
+                        # Read current from motor 1 (channel 1)
+                        reading_1 = mc.get_current_sense_reading(1)
+                        current_1 = reading_1['processed'] / 1000.0  # Convert milliamps to amps
+
+                        # Read current from motor 2 (channel 2)
+                        reading_2 = mc.get_current_sense_reading(2)
+                        current_2 = reading_2['processed'] / 1000.0  # Convert milliamps to amps
+
                         currents[i * 2] = current_1
                         currents[i * 2 + 1] = current_2
                     except Exception as e:

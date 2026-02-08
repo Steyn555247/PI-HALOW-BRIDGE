@@ -340,11 +340,15 @@ class HaLowBridge:
                     telemetry_connected=self.telemetry_sender.is_connected()
                 )
 
-                # Log status periodically (include sensor data for dashboard)
+                # Log status periodically (include sensor data and motor currents for dashboard)
                 sensor_data = self.sensor_reader.get_all_data()
+                motor_currents = self.actuator_controller.get_motor_currents()
+                video_stats = self.video_capture.get_stats() if self.video_capture else None
                 self.watchdog_monitor.log_status(
                     telemetry_connected=self.telemetry_sender.is_connected(),
-                    sensor_data=sensor_data
+                    sensor_data=sensor_data,
+                    motor_currents=motor_currents,
+                    video_stats=video_stats
                 )
 
             except Exception as e:

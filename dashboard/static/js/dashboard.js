@@ -66,6 +66,9 @@ function updateDashboard(status) {
     // Update sensors (collapsed section)
     updateSensors(status.sensors);
 
+    // Update motor currents
+    updateMotorCurrents(status.actuators);
+
     // Update issues
     updateIssues(status);
 }
@@ -338,6 +341,54 @@ function updateSensors(sensors) {
         setText('baro-pressure', baro.pressure?.toFixed(1));
         setText('baro-temp', baro.temperature?.toFixed(1));
         setText('baro-alt', baro.altitude?.toFixed(1));
+    }
+}
+
+// ============================================================================
+// Motor Currents
+// ============================================================================
+
+function updateMotorCurrents(actuators) {
+    if (!actuators || !actuators.motor_currents) {
+        // No motor current data - show dashes
+        for (let i = 0; i < 8; i++) {
+            setText(`motor-${i}-current`, '-- A');
+        }
+        setText('motor-total-current', '-- A');
+        return;
+    }
+
+    const currents = actuators.motor_currents;
+    let total = 0.0;
+
+    // Update individual motor currents
+    for (let i = 0; i < 8; i++) {
+        const current = currents[i] || 0.0;
+        total += current;
+
+        // Color code based on current level
+        const element = document.getElementById(`motor-${i}-current`);
+        if (element) {
+            element.textContent = `${current.toFixed(3)} A`;
+
+            // Update badge color based on current level
+            element.classList.remove('bg-secondary', 'bg-success', 'bg-warning', 'bg-danger');
+            if (current < 0.01) {
+                element.classList.add('bg-secondary');  // Off/idle
+            } else if (current < 0.5) {
+                element.classList.add('bg-success');   // Low current
+            } else if (current < 1.5) {
+                element.classList.add('bg-warning');   // Medium current
+            } else {
+                element.classList.add('bg-danger');    // High current
+            }
+        }
+    }
+
+    // Update total current
+    const totalElement = document.getElementById('motor-total-current');
+    if (totalElement) {
+        totalElement.textContent = `${total.toFixed(3)} A`;
     }
 }
 
