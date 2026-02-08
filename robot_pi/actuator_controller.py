@@ -248,24 +248,35 @@ class ActuatorController:
             self._estop_reason = reason
             self._estop_timestamp = time.time()
 
-            # Stop all motors immediately
+            # Stop all motors immediately - track success/failure
+            motors_stopped = 0
+            motors_failed = 0
             for i, mc in enumerate(self.motorons):
                 if mc:
                     try:
                         mc.set_speed(1, 0)
                         mc.set_speed(2, 0)
+                        motors_stopped += 1
                     except Exception as e:
-                        logger.error(f"Error stopping Motoron {i} during E-STOP: {e}")
+                        motors_failed += 1
+                        logger.error(f"CRITICAL: Failed to stop Motoron {i} during E-STOP: {e}")
 
             # Stop servo (set to neutral)
+            servo_stopped = False
             if self.servo_pwm:
                 try:
                     self.servo_pwm.ChangeDutyCycle(7.5)  # Neutral position
+                    servo_stopped = True
                 except Exception as e:
-                    logger.error(f"Error stopping servo during E-STOP: {e}")
+                    logger.error(f"CRITICAL: Failed to stop servo during E-STOP: {e}")
+
+            # Log results with detailed status
+            if motors_failed > 0 or (motors_stopped == 0 and len(self.motorons) > 0):
+                logger.critical(f"E-STOP: MOTOR STOP INCOMPLETE - {motors_stopped} stopped, {motors_failed} FAILED! I2C may be failing!")
 
             if not was_engaged:
-                self._log_estop_event("ENGAGED", reason, detail)
+                self._log_estop_event("ENGAGED", reason,
+                    f"{detail} (motors_stopped={motors_stopped}, motors_failed={motors_failed}, servo={'OK' if servo_stopped else 'FAILED'})")
 
     def clear_estop(self, confirm: str, control_age_s: float, control_connected: bool) -> bool:
         """

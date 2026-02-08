@@ -46,7 +46,7 @@ class StateManager:
         # E-STOP debounce state (prevent rapid duplicate/oscillating events)
         self._last_emergency_status_time = 0.0
         self._last_emergency_status_active: Optional[bool] = None
-        self._emergency_debounce_s = 0.3  # Ignore events within 300ms
+        self._emergency_debounce_s = 0.5  # Ignore events within 500ms (increased from 300ms)
 
         logger.info(f"StateManager initialized (camera_id={default_camera_id})")
 
