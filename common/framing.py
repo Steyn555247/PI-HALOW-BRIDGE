@@ -251,6 +251,13 @@ class SecureFramer:
         with self._recv_lock:
             return self._recv_seq
 
+    def reset_recv_seq(self):
+        """Reset receive sequence number (for reconnection handling)"""
+        with self._recv_lock:
+            old_seq = self._recv_seq
+            self._recv_seq = 0
+            logger.info(f"[{self.role}] Receive sequence reset: {old_seq} -> 0")
+
 
 def create_unauthenticated_frame(payload: bytes) -> bytes:
     """

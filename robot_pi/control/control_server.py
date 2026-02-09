@@ -31,9 +31,7 @@ from common.connection_manager import (
     configure_tcp_keepalive
 )
 from common.framing import SecureFramer, FramingError, AuthenticationError, ReplayError
-from common.constants import (
-    # E-STOP triggers disabled - only operator_command E-STOP enabled
-)
+# E-STOP triggers disabled - only operator_command E-STOP enabled
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +155,10 @@ class ControlServer:
 
             # Configure TCP keepalive
             configure_tcp_keepalive(client_sock, idle=60, interval=10, count=3)
+
+            # Reset receive sequence number for new connection
+            # This allows base_pi to reconnect with a new sequence stream
+            self.framer.reset_recv_seq()
 
             self.client_socket = client_sock
             self.connected = True
