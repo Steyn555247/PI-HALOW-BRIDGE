@@ -203,6 +203,9 @@ class HaLowBridge:
         if self.video_capture:
             self.video_capture.start()
 
+        # Start motor timeout monitor
+        self.command_executor.start_motor_timeout_monitor()
+
         # Start control server
         if not self.control_server.start_server():
             logger.error("Failed to start control server - retrying in background")
@@ -226,6 +229,9 @@ class HaLowBridge:
         self.running = False
 
         # E-STOP on shutdown disabled - only operator_command E-STOP enabled
+
+        # Stop motor timeout monitor
+        self.command_executor.stop_motor_timeout_monitor()
 
         # Stop components
         self.actuator_controller.stop()

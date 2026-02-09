@@ -65,7 +65,74 @@ class CommandExecutor:
         self.last_control_time = time.time()
         self.control_connected = False
 
+        # Motor timeout safety - stop motors if no input received
+        self._last_input_time = time.time()
+        self._input_timeout_s = 0.5  # Stop motors if no input for 500ms
+        self._motor_timeout_thread = None
+        self._motor_timeout_running = False
+        self._input_lock = threading.Lock()
+
         logger.info("CommandExecutor initialized")
+
+    def start_motor_timeout_monitor(self):
+        """Start the motor timeout monitor thread."""
+        if not self._motor_timeout_running:
+            self._motor_timeout_running = True
+            self._motor_timeout_thread = threading.Thread(
+                target=self._motor_timeout_loop,
+                daemon=True
+            )
+            self._motor_timeout_thread.start()
+            logger.info(f"Motor timeout monitor started (timeout={self._input_timeout_s}s)")
+
+    def stop_motor_timeout_monitor(self):
+        """Stop the motor timeout monitor thread."""
+        self._motor_timeout_running = False
+        if self._motor_timeout_thread:
+            self._motor_timeout_thread.join(timeout=2.0)
+        logger.info("Motor timeout monitor stopped")
+
+    def _motor_timeout_loop(self):
+        """
+        Monitor motor input timeout and stop motors if no input received.
+
+        This prevents motors from continuing to run when the controller
+        disconnects or stops sending input.
+        """
+        logger.info("Motor timeout monitor loop started")
+        last_motors_active = False
+
+        while self._motor_timeout_running:
+            try:
+                time.sleep(0.1)  # Check every 100ms
+
+                with self._input_lock:
+                    input_age = time.time() - self._last_input_time
+
+                # If no input for longer than timeout, stop all motors
+                if input_age > self._input_timeout_s:
+                    # Only log and stop if motors were previously active
+                    if last_motors_active:
+                        logger.info(f"Motor timeout: no input for {input_age:.2f}s, stopping all motors")
+                        self._stop_all_motors()
+                        last_motors_active = False
+                else:
+                    last_motors_active = True
+
+            except Exception as e:
+                logger.error(f"Error in motor timeout loop: {e}")
+                time.sleep(1.0)
+
+        logger.info("Motor timeout monitor loop stopped")
+
+    def _stop_all_motors(self):
+        """Stop all motors by setting speed to 0."""
+        try:
+            # Stop all active motors (0-7)
+            for motor_id in range(8):
+                self.actuator_controller.set_motor_speed(motor_id, 0)
+        except Exception as e:
+            logger.error(f"Error stopping motors: {e}")
 
     def process_command(self, payload: bytes, seq: int):
         """
@@ -195,6 +262,10 @@ class CommandExecutor:
         Args:
             data: Input event data dictionary
         """
+        # Update last input time to prevent motor timeout
+        with self._input_lock:
+            self._last_input_time = time.time()
+
         event_type = data.get('type')
         index = data.get('index', 0)
         value = data.get('value', 0.0)
