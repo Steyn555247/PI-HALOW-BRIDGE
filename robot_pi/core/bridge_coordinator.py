@@ -73,26 +73,27 @@ class HaLowBridge:
         )
 
         # Configure current sensors
-        current_sensors_config = {
-            'battery': {
-                'addr': config.CURRENT_SENSOR_BATTERY_ADDR,
-                'channel': config.CURRENT_SENSOR_BATTERY_CHANNEL,
-                'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
-                'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
-            },
-            'system': {
-                'addr': config.CURRENT_SENSOR_SYSTEM_ADDR,
-                'channel': config.CURRENT_SENSOR_SYSTEM_CHANNEL,
-                'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
-                'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
-            },
-            'servo': {
-                'addr': config.CURRENT_SENSOR_SERVO_ADDR,
-                'channel': config.CURRENT_SENSOR_SERVO_CHANNEL,
-                'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
-                'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
-            }
-        }
+        # DISABLED: Current sensors not implemented yet - causing system overload
+        # current_sensors_config = {
+        #     'battery': {
+        #         'addr': config.CURRENT_SENSOR_BATTERY_ADDR,
+        #         'channel': config.CURRENT_SENSOR_BATTERY_CHANNEL,
+        #         'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
+        #         'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
+        #     },
+        #     'system': {
+        #         'addr': config.CURRENT_SENSOR_SYSTEM_ADDR,
+        #         'channel': config.CURRENT_SENSOR_SYSTEM_CHANNEL,
+        #         'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
+        #         'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
+        #     },
+        #     'servo': {
+        #         'addr': config.CURRENT_SENSOR_SERVO_ADDR,
+        #         'channel': config.CURRENT_SENSOR_SERVO_CHANNEL,
+        #         'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
+        #         'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
+        #     }
+        # }
 
         self.sensor_reader = SensorReader(
             i2c_bus=config.I2C_BUS,
@@ -103,7 +104,7 @@ class HaLowBridge:
             mux_addr=config.I2C_MUX_ADDRESS,
             imu_channel=config.IMU_MUX_CHANNEL,
             baro_channel=config.BAROMETER_MUX_CHANNEL,
-            current_sensors=current_sensors_config
+            current_sensors=None  # Disabled - not implemented yet
         )
 
         self.video_capture = None
