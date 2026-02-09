@@ -255,6 +255,10 @@ class CommandExecutor:
         """
         Handle gamepad input event.
 
+        Axis Mapping:
+        - Axis 1 (Left Stick Y): Motor 2 (Chainsaw 1 up/down)
+        - Axis 3 (Right Stick Y): Motor 3 (Chainsaw 2 up/down)
+
         Button Mapping:
         - Button A (0): Motor 0 UP/FORWARD (claw open)
         - Button B (1): Motor 0 DOWN/BACKWARD (claw close)
@@ -272,12 +276,14 @@ class CommandExecutor:
 
         try:
             if event_type == 'axis':
-                if index == 0:
+                # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
+                if index == 1:
                     speed = int(float(value) * 800)
-                    self.actuator_controller.set_motor_speed(0, speed)
-                elif index == 1:
+                    self.actuator_controller.set_motor_speed(2, speed)
+                # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
+                elif index == 3:
                     speed = int(float(value) * 800)
-                    self.actuator_controller.set_motor_speed(1, speed)
+                    self.actuator_controller.set_motor_speed(3, speed)
 
             elif event_type == 'button':
                 # A button (index 0): Motor 0 UP/FORWARD (claw open)

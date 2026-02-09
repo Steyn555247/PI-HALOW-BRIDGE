@@ -172,17 +172,20 @@ class SensorReader:
                 # Initialize BMP581
                 if BMP5XX_AVAILABLE:
                     try:
-                        if self.multiplexer:
-                            logger.debug(f"Switching to barometer channel {self.baro_channel}")
-                            channel_i2c = self.multiplexer[self.baro_channel]
-                            # BMP5XX requires I2CDevice wrapper
-                            i2c_device = I2CDevice(channel_i2c, self.bmp581_addr)
-                            self.bmp581 = adafruit_bmp5xx.BMP5XX(i2c_device)
-                        else:
-                            i2c_device = I2CDevice(self.i2c, self.bmp581_addr)
-                            self.bmp581 = adafruit_bmp5xx.BMP5XX(i2c_device)
-
-                        logger.info(f"BMP581 initialized at 0x{self.bmp581_addr:02X} on channel {self.baro_channel}")
+                        logger.debug("Attempting BMP581 initialization...")
+                        # Skip BMP581 for now to prevent blocking - TEMPORARY FIX
+                        logger.warning("BMP581 initialization skipped (prevents blocking)")
+                        self.bmp581 = None
+                        # if self.multiplexer:
+                        #     logger.debug(f"Switching to barometer channel {self.baro_channel}")
+                        #     channel_i2c = self.multiplexer[self.baro_channel]
+                        #     # BMP5XX requires I2CDevice wrapper
+                        #     i2c_device = I2CDevice(channel_i2c, self.bmp581_addr)
+                        #     self.bmp581 = adafruit_bmp5xx.BMP5XX(i2c_device)
+                        # else:
+                        #     i2c_device = I2CDevice(self.i2c, self.bmp581_addr)
+                        #     self.bmp581 = adafruit_bmp5xx.BMP5XX(i2c_device)
+                        # logger.info(f"BMP581 initialized at 0x{self.bmp581_addr:02X} on channel {self.baro_channel}")
                     except Exception as e:
                         logger.error(f"Failed to initialize BMP581: {e}")
                         self.bmp581 = None
