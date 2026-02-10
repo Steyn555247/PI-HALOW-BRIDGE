@@ -130,10 +130,15 @@ class CommandExecutor:
         logger.info("Motor timeout monitor loop stopped")
 
     def _stop_all_motors(self):
-        """Stop all motors by setting speed to 0."""
+        """Stop claw motors only (0-1). Chainsaw, traverse, hoist excluded from timeout."""
         try:
-            # Stop all active motors (0-7)
-            for motor_id in range(8):
+            # Only stop claw motors (0-1)
+            # Excluded from timeout:
+            #   - Motor 2, 3: Chainsaw up/down (have explicit stop on release)
+            #   - Motor 4, 5: Chainsaw on/off (toggle, user controls)
+            #   - Motor 6: Traverse (has explicit stop on release)
+            #   - Motor 7: Hoist (has explicit stop on release)
+            for motor_id in range(2):  # Only motors 0 and 1
                 self.actuator_controller.set_motor_speed(motor_id, 0)
         except Exception as e:
             logger.error(f"Error stopping motors: {e}")
@@ -335,6 +340,10 @@ class CommandExecutor:
         Args:
             data: Command data with chainsaw_id and action (on/off)
         """
+        # Update input time to prevent timeout
+        with self._input_lock:
+            self._last_input_time = time.time()
+
         chainsaw_id = data.get('chainsaw_id', 1)
         action = data.get('action', 'off')
 
@@ -367,6 +376,10 @@ class CommandExecutor:
         Args:
             data: Command data with chainsaw_id and direction (up/down/stop)
         """
+        # Update input time to prevent timeout
+        with self._input_lock:
+            self._last_input_time = time.time()
+
         chainsaw_id = data.get('chainsaw_id', 1)
         direction = data.get('direction', 'stop')
 
@@ -392,6 +405,10 @@ class CommandExecutor:
         Args:
             data: Command data with direction (up/stop)
         """
+        # Update input time to prevent timeout
+        with self._input_lock:
+            self._last_input_time = time.time()
+
         direction = data.get('direction', 'stop')
 
         if direction == 'up':
@@ -410,6 +427,10 @@ class CommandExecutor:
         Args:
             data: Command data with direction (left/right/stop)
         """
+        # Update input time to prevent timeout
+        with self._input_lock:
+            self._last_input_time = time.time()
+
         direction = data.get('direction', 'stop')
 
         if direction == 'left':
@@ -433,6 +454,10 @@ class CommandExecutor:
         Args:
             data: Command data with action (engage/release)
         """
+        # Update input time to prevent timeout
+        with self._input_lock:
+            self._last_input_time = time.time()
+
         action = data.get('action', 'release')
 
         if action == 'engage':
