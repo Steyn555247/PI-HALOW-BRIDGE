@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 HARDWARE_AVAILABLE = False
 SERVOKIT_AVAILABLE = False
+MULTIPLEXER_AVAILABLE = False
 if not SIM_MODE:
     try:
         from motoron import MotoronI2C
@@ -49,9 +50,18 @@ if not SIM_MODE:
 
     try:
         from adafruit_servokit import ServoKit
+        import busio
+        import board
         SERVOKIT_AVAILABLE = True
     except ImportError:
         logger.warning("adafruit-circuitpython-servokit not installed. Install with: sudo pip3 install adafruit-circuitpython-servokit")
+        pass
+
+    try:
+        import adafruit_tca9548a
+        MULTIPLEXER_AVAILABLE = True
+    except ImportError:
+        logger.warning("adafruit-tca9548a library not available for multiplexer support")
         pass
 
 
@@ -166,6 +176,11 @@ class ActuatorController:
                  servo_min_pulse: int = 500,
                  servo_max_pulse: int = 2500,
                  servo_actuation_range: int = 180,
+                 # Multiplexer parameters (for PCA9685 behind multiplexer)
+                 use_multiplexer_for_servo: bool = False,
+                 mux_address: int = 0x70,
+                 pca9685_mux_channel: int = 2,
+                 i2c_bus: int = 1,
                  # Legacy GPIO PWM parameters (for backwards compatibility)
                  servo_gpio: int = 12,
                  servo_freq: int = 50,
@@ -184,6 +199,12 @@ class ActuatorController:
         self.servo_max_pulse = servo_max_pulse
         self.servo_actuation_range = servo_actuation_range
 
+        # Multiplexer configuration
+        self.use_multiplexer_for_servo = use_multiplexer_for_servo
+        self.mux_address = mux_address
+        self.pca9685_mux_channel = pca9685_mux_channel
+        self.i2c_bus = i2c_bus
+
         # Legacy GPIO PWM config
         self.servo_gpio = servo_gpio
         self.servo_freq = servo_freq
@@ -193,6 +214,7 @@ class ActuatorController:
         self.motorons: List[Optional[object]] = []
         self.servo_kit = None  # PCA9685 ServoKit
         self.servo_pwm = None  # Legacy GPIO PWM
+        self.multiplexer = None  # I2C multiplexer for PCA9685
 
         # Boot E-STOP disabled - only operator_command E-STOP enabled
         self._estop_engaged = False
@@ -286,8 +308,24 @@ class ActuatorController:
                         if not SERVOKIT_AVAILABLE:
                             raise RuntimeError("ServoKit library not available. Install with: sudo pip3 install adafruit-circuitpython-servokit")
 
-                        logger.info(f"Initializing PCA9685 at 0x{self.pca9685_address:02X}, {self.pca9685_channels} channels...")
-                        self.servo_kit = ServoKit(channels=self.pca9685_channels, address=self.pca9685_address)
+                        # Initialize I2C bus
+                        i2c = busio.I2C(board.SCL, board.SDA)
+
+                        # Check if PCA9685 should be accessed through multiplexer
+                        if self.use_multiplexer_for_servo:
+                            if not MULTIPLEXER_AVAILABLE:
+                                raise RuntimeError("Multiplexer library not available. Install with: pip install adafruit-circuitpython-tca9548a")
+
+                            logger.info(f"Initializing I2C multiplexer at 0x{self.mux_address:02X} for PCA9685...")
+                            self.multiplexer = adafruit_tca9548a.TCA9548A(i2c, address=self.mux_address)
+
+                            logger.info(f"Initializing PCA9685 at 0x{self.pca9685_address:02X} on multiplexer channel {self.pca9685_mux_channel}...")
+                            # Use the multiplexed I2C channel
+                            mux_channel = self.multiplexer[self.pca9685_mux_channel]
+                            self.servo_kit = ServoKit(channels=self.pca9685_channels, address=self.pca9685_address, i2c=mux_channel)
+                        else:
+                            logger.info(f"Initializing PCA9685 at 0x{self.pca9685_address:02X}, {self.pca9685_channels} channels...")
+                            self.servo_kit = ServoKit(channels=self.pca9685_channels, address=self.pca9685_address, i2c=i2c)
 
                         # Configure servo on the specified channel
                         logger.info(f"Configuring servo on channel {self.servo_channel}...")
@@ -297,12 +335,15 @@ class ActuatorController:
                         # Set to neutral position (90° for 180° servo)
                         neutral_angle = self.servo_actuation_range / 2.0
                         self.servo_kit.servo[self.servo_channel].angle = neutral_angle
-                        logger.info(f"PCA9685 servo initialized - channel {self.servo_channel} at {neutral_angle}° (neutral)")
+
+                        mux_info = f" (multiplexer ch{self.pca9685_mux_channel})" if self.use_multiplexer_for_servo else ""
+                        logger.info(f"PCA9685 servo initialized{mux_info} - channel {self.servo_channel} at {neutral_angle}° (neutral)")
                     except Exception as e:
                         logger.error(f"Failed to initialize PCA9685 servo: {e}")
                         import traceback
                         logger.error(f"Traceback: {traceback.format_exc()}")
                         self.servo_kit = None
+                        self.multiplexer = None
                 else:
                     # Use legacy GPIO PWM
                     try:
