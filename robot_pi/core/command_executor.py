@@ -482,7 +482,7 @@ class CommandExecutor:
         Handle brake engage/release command (servo control).
 
         Servo position:
-        - engage: 30 degrees (position 0.167) = ~4.2% duty at 50Hz
+        - engage: 60 degrees (position 0.333) = ~6.2% duty at 50Hz
         - release: 0 degrees (position 0.0) = 2.5% duty at 50Hz
 
         Args:
@@ -495,9 +495,9 @@ class CommandExecutor:
         action = data.get('action', 'release')
 
         if action == 'engage':
-            # 30 degrees = 30/180 = 0.167 position
-            logger.info("Brake ENGAGE: Servo to 30°")
-            success = self.actuator_controller.set_servo_position(0.167)
+            # 60 degrees = 60/180 = 0.333 position
+            logger.info("Brake ENGAGE: Servo to 60°")
+            success = self.actuator_controller.set_servo_position(0.333)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
         else:  # release
