@@ -446,6 +446,7 @@ class ActuatorController:
         with self._lock:
             # Check E-STOP while holding lock
             if self._estop_engaged:
+                logger.warning(f"Servo command blocked: E-STOP engaged")
                 return False
 
             if self.servo_pwm:
@@ -458,7 +459,7 @@ class ActuatorController:
                     duty = min_duty + position * (max_duty - min_duty)
 
                     self.servo_pwm.ChangeDutyCycle(duty)
-                    logger.debug(f"Servo position: {position:.2f} (duty: {duty:.2f}%)")
+                    logger.info(f"Servo position set: {position:.2f} (duty: {duty:.2f}%)")
                     return True
                 except Exception as e:
                     logger.error(f"Error setting servo position: {e}")
@@ -469,7 +470,7 @@ class ActuatorController:
                                          f"Servo error: {e}")
                     return False
             else:
-                logger.warning("Servo not available")
+                logger.warning("Servo command failed: servo_pwm is None (not initialized)")
                 return False
 
     def get_motor_currents(self) -> List[float]:

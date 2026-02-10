@@ -438,11 +438,15 @@ class CommandExecutor:
         if action == 'engage':
             # 30 degrees = 30/180 = 0.167 position
             logger.info("Brake ENGAGE: Servo to 30°")
-            self.actuator_controller.set_servo_position(0.167)
+            success = self.actuator_controller.set_servo_position(0.167)
+            if not success:
+                logger.warning("Brake ENGAGE failed - servo command returned False")
         else:  # release
             # 0 degrees = 0.0 position
             logger.info("Brake RELEASE: Servo to 0°")
-            self.actuator_controller.set_servo_position(0.0)
+            success = self.actuator_controller.set_servo_position(0.0)
+            if not success:
+                logger.warning("Brake RELEASE failed - servo command returned False")
 
     def get_pong_data(self) -> Optional[Dict[str, Any]]:
         """
