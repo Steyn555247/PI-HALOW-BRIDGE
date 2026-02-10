@@ -54,10 +54,15 @@ class CommandExecutor:
         self.height = 0.0
         self.force = 0.0
 
-        # Chainsaw move auto-stop timers (1 second max duration)
-        self._chainsaw_move_timeout_s = 1.0
+        # Chainsaw move control (0.2s increments, 1s max)
+        self._chainsaw_increment_s = 0.2  # Time increment per pulse
+        self._chainsaw_max_time_s = 1.0   # Maximum total time
         self._chainsaw1_move_timer = None
         self._chainsaw2_move_timer = None
+        self._chainsaw1_axis_value = 0.0  # Track current axis value
+        self._chainsaw2_axis_value = 0.0
+        self._chainsaw1_elapsed_time = 0.0  # Track total elapsed time
+        self._chainsaw2_elapsed_time = 0.0
 
         # Ping/Pong tracking for RTT measurement
         # When we receive a ping, we store it and include pong data in telemetry
@@ -306,39 +311,49 @@ class CommandExecutor:
 
                 # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
                 if index == 1:
-                    # Cancel existing timer
-                    if self._chainsaw1_move_timer:
-                        self._chainsaw1_move_timer.cancel()
-                        self._chainsaw1_move_timer = None
+                    self._chainsaw1_axis_value = float(value)
 
                     # Apply deadzone - treat small values as zero
-                    if abs(float(value)) < DEADZONE:
+                    if abs(self._chainsaw1_axis_value) < DEADZONE:
                         logger.debug("Chainsaw 1 STOP: Stick released (Motor 2)")
+                        # Cancel timer and stop motor
+                        if self._chainsaw1_move_timer:
+                            self._chainsaw1_move_timer.cancel()
+                            self._chainsaw1_move_timer = None
+                        self._chainsaw1_elapsed_time = 0.0
                         self.actuator_controller.set_motor_speed(2, 0)
                     else:
-                        speed = int(float(value) * 800)
-                        logger.info(f"Chainsaw 1 MOVE: Motor 2 speed={speed} (max 1s)")
-                        self.actuator_controller.set_motor_speed(2, speed)
-                        # Start 1-second auto-stop timer
-                        self._start_chainsaw_move_timer(1, 2)
+                        # Stick pushed - start movement if not already running
+                        if self._chainsaw1_move_timer is None:
+                            speed = int(self._chainsaw1_axis_value * 800)
+                            logger.info(f"Chainsaw 1 START: Motor 2 speed={speed} (0.2s increments)")
+                            self._chainsaw1_elapsed_time = 0.0
+                            self.actuator_controller.set_motor_speed(2, speed)
+                            # Start 0.2s increment timer
+                            self._start_chainsaw_increment_timer(1, 2)
 
                 # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
                 elif index == 3:
-                    # Cancel existing timer
-                    if self._chainsaw2_move_timer:
-                        self._chainsaw2_move_timer.cancel()
-                        self._chainsaw2_move_timer = None
+                    self._chainsaw2_axis_value = float(value)
 
                     # Apply deadzone - treat small values as zero
-                    if abs(float(value)) < DEADZONE:
+                    if abs(self._chainsaw2_axis_value) < DEADZONE:
                         logger.debug("Chainsaw 2 STOP: Stick released (Motor 3)")
+                        # Cancel timer and stop motor
+                        if self._chainsaw2_move_timer:
+                            self._chainsaw2_move_timer.cancel()
+                            self._chainsaw2_move_timer = None
+                        self._chainsaw2_elapsed_time = 0.0
                         self.actuator_controller.set_motor_speed(3, 0)
                     else:
-                        speed = int(float(value) * 800)
-                        logger.info(f"Chainsaw 2 MOVE: Motor 3 speed={speed} (max 1s)")
-                        self.actuator_controller.set_motor_speed(3, speed)
-                        # Start 1-second auto-stop timer
-                        self._start_chainsaw_move_timer(2, 3)
+                        # Stick pushed - start movement if not already running
+                        if self._chainsaw2_move_timer is None:
+                            speed = int(self._chainsaw2_axis_value * 800)
+                            logger.info(f"Chainsaw 2 START: Motor 3 speed={speed} (0.2s increments)")
+                            self._chainsaw2_elapsed_time = 0.0
+                            self.actuator_controller.set_motor_speed(3, speed)
+                            # Start 0.2s increment timer
+                            self._start_chainsaw_increment_timer(2, 3)
 
             elif event_type == 'button':
                 # A button (index 0): Motor 0 UP/FORWARD (claw open)
@@ -434,31 +449,106 @@ class CommandExecutor:
         if chainsaw_id == 1 and self._chainsaw1_move_timer:
             self._chainsaw1_move_timer.cancel()
             self._chainsaw1_move_timer = None
+            self._chainsaw1_elapsed_time = 0.0
         elif chainsaw_id == 2 and self._chainsaw2_move_timer:
             self._chainsaw2_move_timer.cancel()
             self._chainsaw2_move_timer = None
+            self._chainsaw2_elapsed_time = 0.0
 
         if direction == 'up':
-            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (max {self._chainsaw_move_timeout_s}s)")
+            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (0.2s increments)")
+            # Set axis value for timer to check
+            if chainsaw_id == 1:
+                self._chainsaw1_axis_value = -1.0  # Simulate stick pushed up
+                self._chainsaw1_elapsed_time = 0.0
+            else:
+                self._chainsaw2_axis_value = -1.0
+                self._chainsaw2_elapsed_time = 0.0
             self.actuator_controller.set_motor_speed(motor_id, 400)  # 50% forward
-            # Start auto-stop timer
-            self._start_chainsaw_move_timer(chainsaw_id, motor_id)
+            # Start increment timer
+            self._start_chainsaw_increment_timer(chainsaw_id, motor_id)
         elif direction == 'down':
-            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (max {self._chainsaw_move_timeout_s}s)")
+            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (0.2s increments)")
+            # Set axis value for timer to check
+            if chainsaw_id == 1:
+                self._chainsaw1_axis_value = 1.0  # Simulate stick pushed down
+                self._chainsaw1_elapsed_time = 0.0
+            else:
+                self._chainsaw2_axis_value = 1.0
+                self._chainsaw2_elapsed_time = 0.0
             self.actuator_controller.set_motor_speed(motor_id, -400)  # 50% backward
-            # Start auto-stop timer
-            self._start_chainsaw_move_timer(chainsaw_id, motor_id)
+            # Start increment timer
+            self._start_chainsaw_increment_timer(chainsaw_id, motor_id)
         else:  # stop
             logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
+            # Clear axis value to simulate stick released
+            if chainsaw_id == 1:
+                self._chainsaw1_axis_value = 0.0
+            else:
+                self._chainsaw2_axis_value = 0.0
             self.actuator_controller.set_motor_speed(motor_id, 0)
 
-    def _start_chainsaw_move_timer(self, chainsaw_id: int, motor_id: int):
-        """Start auto-stop timer for chainsaw move (1 second max)."""
-        def auto_stop():
-            logger.info(f"Chainsaw {chainsaw_id} AUTO-STOP: Motor {motor_id} (1s timeout)")
-            self.actuator_controller.set_motor_speed(motor_id, 0)
+    def _start_chainsaw_increment_timer(self, chainsaw_id: int, motor_id: int):
+        """
+        Start 0.2s increment timer for chainsaw move.
 
-        timer = threading.Timer(self._chainsaw_move_timeout_s, auto_stop)
+        Timer checks every 0.2s:
+        - If stick still held: continue for another 0.2s (up to 1s max)
+        - If stick released: timer already cancelled by axis handler
+        - If 1s max reached: stop motor
+        """
+        def check_and_continue():
+            # Check which chainsaw
+            if chainsaw_id == 1:
+                axis_value = self._chainsaw1_axis_value
+                self._chainsaw1_elapsed_time += self._chainsaw_increment_s
+                elapsed = self._chainsaw1_elapsed_time
+            else:
+                axis_value = self._chainsaw2_axis_value
+                self._chainsaw2_elapsed_time += self._chainsaw_increment_s
+                elapsed = self._chainsaw2_elapsed_time
+
+            DEADZONE = 0.15
+
+            # Check if stick still held beyond deadzone
+            if abs(axis_value) < DEADZONE:
+                # Stick released - stop
+                logger.debug(f"Chainsaw {chainsaw_id} timer: stick released, stopping Motor {motor_id}")
+                self.actuator_controller.set_motor_speed(motor_id, 0)
+                if chainsaw_id == 1:
+                    self._chainsaw1_move_timer = None
+                    self._chainsaw1_elapsed_time = 0.0
+                else:
+                    self._chainsaw2_move_timer = None
+                    self._chainsaw2_elapsed_time = 0.0
+                return
+
+            # Check if max time reached
+            if elapsed >= self._chainsaw_max_time_s:
+                # Max time - stop
+                logger.info(f"Chainsaw {chainsaw_id} MAX TIME: Motor {motor_id} (1s reached)")
+                self.actuator_controller.set_motor_speed(motor_id, 0)
+                if chainsaw_id == 1:
+                    self._chainsaw1_move_timer = None
+                    self._chainsaw1_elapsed_time = 0.0
+                else:
+                    self._chainsaw2_move_timer = None
+                    self._chainsaw2_elapsed_time = 0.0
+                return
+
+            # Stick still held and time remaining - schedule another increment
+            logger.debug(f"Chainsaw {chainsaw_id} increment: {elapsed:.1f}s, continuing Motor {motor_id}")
+            timer = threading.Timer(self._chainsaw_increment_s, check_and_continue)
+            timer.daemon = True
+            timer.start()
+
+            if chainsaw_id == 1:
+                self._chainsaw1_move_timer = timer
+            else:
+                self._chainsaw2_move_timer = timer
+
+        # Start first increment
+        timer = threading.Timer(self._chainsaw_increment_s, check_and_continue)
         timer.daemon = True
         timer.start()
 
