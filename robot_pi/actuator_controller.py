@@ -29,7 +29,7 @@ from common.constants import (
     ESTOP_REASON_INTERNAL_ERROR, ESTOP_REASON_COMMAND,
     ESTOP_CLEAR_CONFIRM, ESTOP_CLEAR_MAX_AGE_S
 )
-from . import config
+from robot_pi import config
 
 # Check SIM_MODE
 SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
