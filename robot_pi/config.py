@@ -91,7 +91,7 @@ TOTAL_MOTORS = NUM_MOTORON_BOARDS * MOTORS_PER_BOARD
 ACTIVE_MOTORS = 8  # All 8 motors used (0-7)
 
 # Servo Configuration (GPIO PWM)
-SERVO_GPIO_PIN = int(os.getenv('SERVO_GPIO_PIN', '12'))
+SERVO_GPIO_PIN = int(os.getenv('SERVO_GPIO_PIN', '18'))
 SERVO_FREQ = int(os.getenv('SERVO_FREQ', '50'))  # Hz
 SERVO_MIN_DUTY = float(os.getenv('SERVO_MIN_DUTY', '2.5'))  # %
 SERVO_MAX_DUTY = float(os.getenv('SERVO_MAX_DUTY', '12.5'))  # %
