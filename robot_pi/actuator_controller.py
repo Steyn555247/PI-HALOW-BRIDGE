@@ -473,6 +473,41 @@ class ActuatorController:
                 logger.warning("Servo command failed: servo_pwm is None (not initialized)")
                 return False
 
+    def set_servo_duty_raw(self, duty: float) -> bool:
+        """
+        Set servo PWM duty cycle directly (raw value).
+
+        SAFETY: Entire check-and-actuate is atomic (under lock).
+
+        Args:
+            duty: Raw duty cycle (0.0 to 100.0)
+
+        Returns:
+            True if command was executed, False if blocked by E-STOP
+        """
+        with self._lock:
+            # Check E-STOP while holding lock
+            if self._estop_engaged:
+                logger.warning(f"Servo command blocked: E-STOP engaged")
+                return False
+
+            if self.servo_pwm:
+                try:
+                    duty = max(0.0, min(100.0, duty))
+                    self.servo_pwm.ChangeDutyCycle(duty)
+                    logger.info(f"Servo raw duty set: {duty:.1f}%")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error setting servo duty: {e}")
+                    self._estop_engaged = True
+                    self._estop_reason = ESTOP_REASON_INTERNAL_ERROR
+                    self._log_estop_event("ENGAGED", ESTOP_REASON_INTERNAL_ERROR,
+                                         f"Servo error: {e}")
+                    return False
+            else:
+                logger.warning("Servo command failed: servo_pwm is None (not initialized)")
+                return False
+
     def get_motor_currents(self) -> List[float]:
         """Get current draw from all motors (if available)"""
         currents = [0.0] * 8
