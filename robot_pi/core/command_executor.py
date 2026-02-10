@@ -426,9 +426,9 @@ class CommandExecutor:
         """
         Handle brake engage/release command (servo control).
 
-        Raw PWM duty cycle:
-        - engage: 80% duty cycle
-        - release: 0% duty cycle
+        Servo position:
+        - engage: 30 degrees (position 0.167) = ~4.2% duty at 50Hz
+        - release: 0 degrees (position 0.0) = 2.5% duty at 50Hz
 
         Args:
             data: Command data with action (engage/release)
@@ -436,13 +436,15 @@ class CommandExecutor:
         action = data.get('action', 'release')
 
         if action == 'engage':
-            logger.info("Brake ENGAGE: PWM 80%")
-            success = self.actuator_controller.set_servo_duty_raw(80.0)
+            # 30 degrees = 30/180 = 0.167 position
+            logger.info("Brake ENGAGE: Servo to 30°")
+            success = self.actuator_controller.set_servo_position(0.167)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
         else:  # release
-            logger.info("Brake RELEASE: PWM 0%")
-            success = self.actuator_controller.set_servo_duty_raw(0.0)
+            # 0 degrees = 0.0 position
+            logger.info("Brake RELEASE: Servo to 0°")
+            success = self.actuator_controller.set_servo_position(0.0)
             if not success:
                 logger.warning("Brake RELEASE failed - servo command returned False")
 
