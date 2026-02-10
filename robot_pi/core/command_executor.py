@@ -301,14 +301,44 @@ class CommandExecutor:
 
         try:
             if event_type == 'axis':
+                # Deadzone threshold for analog sticks
+                DEADZONE = 0.15
+
                 # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
                 if index == 1:
-                    speed = int(float(value) * 800)
-                    self.actuator_controller.set_motor_speed(2, speed)
+                    # Cancel existing timer
+                    if self._chainsaw1_move_timer:
+                        self._chainsaw1_move_timer.cancel()
+                        self._chainsaw1_move_timer = None
+
+                    # Apply deadzone - treat small values as zero
+                    if abs(float(value)) < DEADZONE:
+                        logger.debug("Chainsaw 1 STOP: Stick released (Motor 2)")
+                        self.actuator_controller.set_motor_speed(2, 0)
+                    else:
+                        speed = int(float(value) * 800)
+                        logger.info(f"Chainsaw 1 MOVE: Motor 2 speed={speed} (max 1s)")
+                        self.actuator_controller.set_motor_speed(2, speed)
+                        # Start 1-second auto-stop timer
+                        self._start_chainsaw_move_timer(1, 2)
+
                 # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
                 elif index == 3:
-                    speed = int(float(value) * 800)
-                    self.actuator_controller.set_motor_speed(3, speed)
+                    # Cancel existing timer
+                    if self._chainsaw2_move_timer:
+                        self._chainsaw2_move_timer.cancel()
+                        self._chainsaw2_move_timer = None
+
+                    # Apply deadzone - treat small values as zero
+                    if abs(float(value)) < DEADZONE:
+                        logger.debug("Chainsaw 2 STOP: Stick released (Motor 3)")
+                        self.actuator_controller.set_motor_speed(3, 0)
+                    else:
+                        speed = int(float(value) * 800)
+                        logger.info(f"Chainsaw 2 MOVE: Motor 3 speed={speed} (max 1s)")
+                        self.actuator_controller.set_motor_speed(3, speed)
+                        # Start 1-second auto-stop timer
+                        self._start_chainsaw_move_timer(2, 3)
 
             elif event_type == 'button':
                 # A button (index 0): Motor 0 UP/FORWARD (claw open)
