@@ -67,9 +67,18 @@ class HaLowBridge:
         # Components - ActuatorController starts with E-STOP ENGAGED
         self.actuator_controller = ActuatorController(
             motoron_addresses=config.MOTORON_ADDRESSES,
+            use_pca9685=config.USE_PCA9685,
+            pca9685_address=config.PCA9685_ADDRESS,
+            pca9685_channels=config.PCA9685_CHANNELS,
+            servo_channel=config.SERVO_CHANNEL,
+            servo_min_pulse=config.SERVO_MIN_PULSE,
+            servo_max_pulse=config.SERVO_MAX_PULSE,
+            servo_actuation_range=config.SERVO_ACTUATION_RANGE,
             servo_gpio=config.SERVO_GPIO_PIN,
             servo_freq=config.SERVO_FREQ,
-            active_motors=config.ACTIVE_MOTORS
+            active_motors=config.ACTIVE_MOTORS,
+            servo_min_duty=config.SERVO_MIN_DUTY,
+            servo_max_duty=config.SERVO_MAX_DUTY
         )
 
         # Configure current sensors

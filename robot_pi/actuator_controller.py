@@ -29,11 +29,16 @@ from common.constants import (
     ESTOP_REASON_INTERNAL_ERROR, ESTOP_REASON_COMMAND,
     ESTOP_CLEAR_CONFIRM, ESTOP_CLEAR_MAX_AGE_S
 )
+from . import config
 
 # Check SIM_MODE
 SIM_MODE = os.getenv('SIM_MODE', 'false').lower() == 'true'
 
+# Initialize logger early so it can be used in import blocks
+logger = logging.getLogger(__name__)
+
 HARDWARE_AVAILABLE = False
+SERVOKIT_AVAILABLE = False
 if not SIM_MODE:
     try:
         from motoron import MotoronI2C
@@ -42,7 +47,12 @@ if not SIM_MODE:
     except ImportError:
         pass
 
-logger = logging.getLogger(__name__)
+    try:
+        from adafruit_servokit import ServoKit
+        SERVOKIT_AVAILABLE = True
+    except ImportError:
+        logger.warning("adafruit-circuitpython-servokit not installed. Install with: sudo pip3 install adafruit-circuitpython-servokit")
+        pass
 
 
 class MockMotoron:
@@ -85,7 +95,7 @@ class MockMotoron:
 
 
 class MockServoPWM:
-    """Mock servo PWM for SIM_MODE"""
+    """Mock servo PWM for SIM_MODE (legacy GPIO mode)"""
 
     def __init__(self, gpio: int, freq: int):
         self.gpio = gpio
@@ -103,6 +113,37 @@ class MockServoPWM:
         self.duty = 0
 
 
+class MockServo:
+    """Mock servo object for MockServoKit"""
+
+    def __init__(self, channel: int):
+        self.channel = channel
+        self._angle = 90
+        self.actuation_range = 180
+
+    @property
+    def angle(self):
+        return self._angle
+
+    @angle.setter
+    def angle(self, value: float):
+        self._angle = max(0, min(self.actuation_range, value))
+        logger.debug(f"MockServo[{self.channel}] angle set to {self._angle}°")
+
+    def set_pulse_width_range(self, min_pulse: int, max_pulse: int):
+        logger.debug(f"MockServo[{self.channel}] pulse range: {min_pulse}-{max_pulse}us")
+
+
+class MockServoKit:
+    """Mock ServoKit for SIM_MODE (PCA9685 mode)"""
+
+    def __init__(self, channels: int = 16, address: int = 0x40):
+        self.channels = channels
+        self.address = address
+        self.servo = [MockServo(i) for i in range(channels)]
+        logger.info(f"MockServoKit created with {channels} channels at address 0x{address:02X}")
+
+
 class EstopState(Enum):
     """E-STOP state enum for clarity"""
     ENGAGED = "engaged"
@@ -117,15 +158,41 @@ class ActuatorController:
     by a validated operator action after control is established.
     """
 
-    def __init__(self, motoron_addresses: List[int], servo_gpio: int = 12,
-                 servo_freq: int = 50, active_motors: int = 8):
+    def __init__(self, motoron_addresses: List[int],
+                 use_pca9685: bool = True,
+                 pca9685_address: int = 0x40,
+                 pca9685_channels: int = 16,
+                 servo_channel: int = 0,
+                 servo_min_pulse: int = 500,
+                 servo_max_pulse: int = 2500,
+                 servo_actuation_range: int = 180,
+                 # Legacy GPIO PWM parameters (for backwards compatibility)
+                 servo_gpio: int = 12,
+                 servo_freq: int = 50,
+                 active_motors: int = 8,
+                 servo_min_duty: float = 2.5,
+                 servo_max_duty: float = 12.5):
         self.motoron_addresses = motoron_addresses
-        self.servo_gpio = servo_gpio
-        self.servo_freq = servo_freq
         self.active_motors = active_motors
 
+        # Servo configuration
+        self.use_pca9685 = use_pca9685
+        self.pca9685_address = pca9685_address
+        self.pca9685_channels = pca9685_channels
+        self.servo_channel = servo_channel
+        self.servo_min_pulse = servo_min_pulse
+        self.servo_max_pulse = servo_max_pulse
+        self.servo_actuation_range = servo_actuation_range
+
+        # Legacy GPIO PWM config
+        self.servo_gpio = servo_gpio
+        self.servo_freq = servo_freq
+        self.servo_min_duty = servo_min_duty
+        self.servo_max_duty = servo_max_duty
+
         self.motorons: List[Optional[object]] = []
-        self.servo_pwm = None
+        self.servo_kit = None  # PCA9685 ServoKit
+        self.servo_pwm = None  # Legacy GPIO PWM
 
         # Boot E-STOP disabled - only operator_command E-STOP enabled
         self._estop_engaged = False
@@ -213,30 +280,64 @@ class ActuatorController:
                         self.motorons.append(None)
 
                 # Initialize servo
-                try:
-                    logger.info(f"Initializing servo on GPIO {self.servo_gpio} at {self.servo_freq}Hz...")
-                    GPIO.setwarnings(False)  # Suppress warnings about channel already in use
-                    GPIO.setmode(GPIO.BCM)
-                    logger.info(f"GPIO mode set to BCM")
-                    GPIO.setup(self.servo_gpio, GPIO.OUT)
-                    logger.info(f"GPIO {self.servo_gpio} configured as OUTPUT")
-                    self.servo_pwm = GPIO.PWM(self.servo_gpio, self.servo_freq)
-                    logger.info(f"PWM object created")
-                    self.servo_pwm.start(7.5)  # Start at neutral position (not 0)
-                    logger.info(f"Servo initialized on GPIO {self.servo_gpio} - PWM started at 7.5% (neutral)")
-                except Exception as e:
-                    logger.error(f"Failed to initialize servo on GPIO {self.servo_gpio}: {e}")
-                    import traceback
-                    logger.error(f"Traceback: {traceback.format_exc()}")
-                    self.servo_pwm = None
+                if self.use_pca9685:
+                    # Use PCA9685 I2C servo controller (preferred - zero jitter)
+                    try:
+                        if not SERVOKIT_AVAILABLE:
+                            raise RuntimeError("ServoKit library not available. Install with: sudo pip3 install adafruit-circuitpython-servokit")
+
+                        logger.info(f"Initializing PCA9685 at 0x{self.pca9685_address:02X}, {self.pca9685_channels} channels...")
+                        self.servo_kit = ServoKit(channels=self.pca9685_channels, address=self.pca9685_address)
+
+                        # Configure servo on the specified channel
+                        logger.info(f"Configuring servo on channel {self.servo_channel}...")
+                        self.servo_kit.servo[self.servo_channel].actuation_range = self.servo_actuation_range
+                        self.servo_kit.servo[self.servo_channel].set_pulse_width_range(self.servo_min_pulse, self.servo_max_pulse)
+
+                        # Set to neutral position (90° for 180° servo)
+                        neutral_angle = self.servo_actuation_range / 2.0
+                        self.servo_kit.servo[self.servo_channel].angle = neutral_angle
+                        logger.info(f"PCA9685 servo initialized - channel {self.servo_channel} at {neutral_angle}° (neutral)")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize PCA9685 servo: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        self.servo_kit = None
+                else:
+                    # Use legacy GPIO PWM
+                    try:
+                        logger.info(f"Initializing servo on GPIO {self.servo_gpio} at {self.servo_freq}Hz...")
+                        GPIO.setwarnings(False)
+                        GPIO.setmode(GPIO.BCM)
+                        logger.info(f"GPIO mode set to BCM")
+                        GPIO.setup(self.servo_gpio, GPIO.OUT)
+                        logger.info(f"GPIO {self.servo_gpio} configured as OUTPUT")
+                        self.servo_pwm = GPIO.PWM(self.servo_gpio, self.servo_freq)
+                        logger.info(f"PWM object created")
+                        neutral_duty = (self.servo_min_duty + self.servo_max_duty) / 2.0
+                        self.servo_pwm.start(neutral_duty)
+                        logger.info(f"Servo initialized on GPIO {self.servo_gpio} - PWM started at {neutral_duty}% (neutral)")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize GPIO PWM servo: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        self.servo_pwm = None
             else:
                 # SIM_MODE or no hardware - use mocks
                 mode_str = "SIM_MODE" if SIM_MODE else "no hardware"
                 logger.info(f"Using mock actuators ({mode_str})")
                 for i, addr in enumerate(self.motoron_addresses):
                     self.motorons.append(MockMotoron(addr))
-                self.servo_pwm = MockServoPWM(self.servo_gpio, self.servo_freq)
-                self.servo_pwm.start(0)
+
+                # Mock servo
+                if self.use_pca9685:
+                    self.servo_kit = MockServoKit(channels=self.pca9685_channels, address=self.pca9685_address)
+                    self.servo_kit.servo[self.servo_channel].actuation_range = self.servo_actuation_range
+                    self.servo_kit.servo[self.servo_channel].set_pulse_width_range(self.servo_min_pulse, self.servo_max_pulse)
+                    self.servo_kit.servo[self.servo_channel].angle = self.servo_actuation_range / 2.0
+                else:
+                    self.servo_pwm = MockServoPWM(self.servo_gpio, self.servo_freq)
+                    self.servo_pwm.start(0)
 
         except Exception as e:
             logger.error(f"Failed to initialize actuators: {e}")
@@ -249,6 +350,16 @@ class ActuatorController:
         """Stop all actuators and cleanup. Engages E-STOP."""
         self.engage_estop(ESTOP_REASON_INTERNAL_ERROR, "Controller stop called")
 
+        # Cleanup servo
+        if self.servo_kit:
+            try:
+                # Set PCA9685 servo to neutral position
+                neutral_angle = self.servo_actuation_range / 2.0
+                self.servo_kit.servo[self.servo_channel].angle = neutral_angle
+                logger.info(f"PCA9685 servo set to neutral ({neutral_angle}°)")
+            except Exception as e:
+                logger.error(f"Error setting PCA9685 servo to neutral: {e}")
+
         if self.servo_pwm:
             try:
                 self.servo_pwm.stop()
@@ -256,7 +367,7 @@ class ActuatorController:
                 if HARDWARE_AVAILABLE and not SIM_MODE:
                     GPIO.cleanup(self.servo_gpio)
             except Exception as e:
-                logger.error(f"Error during servo cleanup: {e}")
+                logger.error(f"Error during GPIO servo cleanup: {e}")
 
         logger.info("ActuatorController stopped")
 
@@ -292,12 +403,20 @@ class ActuatorController:
 
             # Stop servo (set to neutral)
             servo_stopped = False
-            if self.servo_pwm:
+            if self.servo_kit:
                 try:
-                    self.servo_pwm.ChangeDutyCycle(7.5)  # Neutral position
+                    neutral_angle = self.servo_actuation_range / 2.0
+                    self.servo_kit.servo[self.servo_channel].angle = neutral_angle
                     servo_stopped = True
                 except Exception as e:
-                    logger.error(f"CRITICAL: Failed to stop servo during E-STOP: {e}")
+                    logger.error(f"CRITICAL: Failed to stop PCA9685 servo during E-STOP: {e}")
+            elif self.servo_pwm:
+                try:
+                    neutral_duty = (self.servo_min_duty + self.servo_max_duty) / 2.0
+                    self.servo_pwm.ChangeDutyCycle(neutral_duty)
+                    servo_stopped = True
+                except Exception as e:
+                    logger.error(f"CRITICAL: Failed to stop GPIO servo during E-STOP: {e}")
 
             # Log results with detailed status
             if motors_failed > 0 or (motors_stopped == 0 and len(self.motorons) > 0):
@@ -456,28 +575,44 @@ class ActuatorController:
                 logger.warning(f"Servo command blocked: E-STOP engaged")
                 return False
 
-            if self.servo_pwm:
-                try:
-                    # Map position to duty cycle
-                    # Typical servo: 2.5% (0°) to 12.5% (180°)
-                    min_duty = 2.5
-                    max_duty = 12.5
-                    position = max(0.0, min(1.0, position))
-                    duty = min_duty + position * (max_duty - min_duty)
+            # Clamp position to valid range
+            position = max(0.0, min(1.0, position))
 
-                    self.servo_pwm.ChangeDutyCycle(duty)
-                    logger.info(f"Servo position set: {position:.2f} (duty: {duty:.2f}%)")
+            if self.servo_kit:
+                try:
+                    # Map position (0.0-1.0) to angle (0° to actuation_range)
+                    angle = position * self.servo_actuation_range
+                    self.servo_kit.servo[self.servo_channel].angle = angle
+                    logger.info(f"PCA9685 servo position set: {position:.2f} (angle: {angle:.1f}°)")
                     return True
                 except Exception as e:
-                    logger.error(f"Error setting servo position: {e}")
+                    logger.error(f"Error setting PCA9685 servo position: {e}")
                     # Engage E-STOP on actuation error
                     self._estop_engaged = True
                     self._estop_reason = ESTOP_REASON_INTERNAL_ERROR
                     self._log_estop_event("ENGAGED", ESTOP_REASON_INTERNAL_ERROR,
-                                         f"Servo error: {e}")
+                                         f"PCA9685 servo error: {e}")
                     return False
+
+            elif self.servo_pwm:
+                try:
+                    # Map position (0.0-1.0) to duty cycle using configured range
+                    # For AITRIP 35KG servo: 2.5% (0°/500us) to 12.5% (180°/2500us)
+                    duty = self.servo_min_duty + position * (self.servo_max_duty - self.servo_min_duty)
+                    self.servo_pwm.ChangeDutyCycle(duty)
+                    logger.info(f"GPIO servo position set: {position:.2f} (duty: {duty:.2f}%)")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error setting GPIO servo position: {e}")
+                    # Engage E-STOP on actuation error
+                    self._estop_engaged = True
+                    self._estop_reason = ESTOP_REASON_INTERNAL_ERROR
+                    self._log_estop_event("ENGAGED", ESTOP_REASON_INTERNAL_ERROR,
+                                         f"GPIO servo error: {e}")
+                    return False
+
             else:
-                logger.warning("Servo command failed: servo_pwm is None (not initialized)")
+                logger.warning("Servo command failed: no servo initialized (servo_kit and servo_pwm are None)")
                 return False
 
     def set_servo_duty_raw(self, duty: float) -> bool:
