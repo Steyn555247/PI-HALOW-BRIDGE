@@ -118,7 +118,7 @@ class ActuatorController:
     """
 
     def __init__(self, motoron_addresses: List[int], servo_gpio: int = 12,
-                 servo_freq: int = 50, active_motors: int = 7):
+                 servo_freq: int = 50, active_motors: int = 8):
         self.motoron_addresses = motoron_addresses
         self.servo_gpio = servo_gpio
         self.servo_freq = servo_freq

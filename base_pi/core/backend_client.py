@@ -149,6 +149,26 @@ class BackendClient:
         def on_raw_button_press(data):
             self.on_command('raw_button_press', data)
 
+        @self.sio.on('chainsaw_command')
+        def on_chainsaw_command(data):
+            logger.info(f"Chainsaw command: {data}")
+            self.on_command('chainsaw_command', data)
+
+        @self.sio.on('chainsaw_move')
+        def on_chainsaw_move(data):
+            logger.info(f"Chainsaw move: {data}")
+            self.on_command('chainsaw_move', data)
+
+        @self.sio.on('climb_command')
+        def on_climb_command(data):
+            logger.info(f"Climb command: {data}")
+            self.on_command('climb_command', data)
+
+        @self.sio.on('traverse_command')
+        def on_traverse_command(data):
+            logger.info(f"Traverse command: {data}")
+            self.on_command('traverse_command', data)
+
     def connect(self):
         """Connect to backend Socket.IO server."""
         try:

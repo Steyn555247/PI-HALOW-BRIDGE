@@ -54,6 +54,10 @@ class CommandExecutor:
         self.height = 0.0
         self.force = 0.0
 
+        # Chainsaw running state (for toggle commands)
+        self.chainsaw1_running = False
+        self.chainsaw2_running = False
+
         # Ping/Pong tracking for RTT measurement
         # When we receive a ping, we store it and include pong data in telemetry
         self._last_ping_ts = 0.0      # Timestamp from the ping message
@@ -190,6 +194,18 @@ class CommandExecutor:
         elif command_type == 'raw_button_press':
             pass  # Log only, no action
 
+        elif command_type == 'chainsaw_command':
+            self._handle_chainsaw_command(data)
+
+        elif command_type == 'chainsaw_move':
+            self._handle_chainsaw_move(data)
+
+        elif command_type == 'climb_command':
+            self._handle_climb_command(data)
+
+        elif command_type == 'traverse_command':
+            self._handle_traverse_command(data)
+
         else:
             logger.warning(f"Unknown command type: {command_type} (ignored)")
 
@@ -304,6 +320,107 @@ class CommandExecutor:
 
         except (ValueError, TypeError) as e:
             logger.warning(f"Invalid input_event data: {e}")
+
+    def _handle_chainsaw_command(self, data: Dict[str, Any]):
+        """
+        Handle chainsaw on/off toggle command.
+
+        Motor mapping:
+        - chainsaw_id 1 → Motor 4
+        - chainsaw_id 2 → Motor 5
+
+        Args:
+            data: Command data with chainsaw_id and action (on/off)
+        """
+        chainsaw_id = data.get('chainsaw_id', 1)
+        action = data.get('action', 'off')
+
+        # Map chainsaw_id to motor: 1→Motor 4, 2→Motor 5
+        motor_id = 3 + chainsaw_id  # 1→4, 2→5
+
+        if action == 'on':
+            logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (forward)")
+            self.actuator_controller.set_motor_speed(motor_id, 400)  # 50% forward
+            if chainsaw_id == 1:
+                self.chainsaw1_running = True
+            else:
+                self.chainsaw2_running = True
+        else:  # off
+            logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF")
+            self.actuator_controller.set_motor_speed(motor_id, 0)
+            if chainsaw_id == 1:
+                self.chainsaw1_running = False
+            else:
+                self.chainsaw2_running = False
+
+    def _handle_chainsaw_move(self, data: Dict[str, Any]):
+        """
+        Handle chainsaw up/down movement command.
+
+        Motor mapping:
+        - chainsaw_id 1 → Motor 2
+        - chainsaw_id 2 → Motor 3
+
+        Args:
+            data: Command data with chainsaw_id and direction (up/down/stop)
+        """
+        chainsaw_id = data.get('chainsaw_id', 1)
+        direction = data.get('direction', 'stop')
+
+        # Map chainsaw_id to motor: 1→Motor 2, 2→Motor 3
+        motor_id = 1 + chainsaw_id  # 1→2, 2→3
+
+        if direction == 'up':
+            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward")
+            self.actuator_controller.set_motor_speed(motor_id, 400)  # 50% forward
+        elif direction == 'down':
+            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward")
+            self.actuator_controller.set_motor_speed(motor_id, -400)  # 50% backward
+        else:  # stop
+            logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
+            self.actuator_controller.set_motor_speed(motor_id, 0)
+
+    def _handle_climb_command(self, data: Dict[str, Any]):
+        """
+        Handle hoist/climb up/down command.
+
+        Motor mapping: Motor 7
+
+        Args:
+            data: Command data with direction (up/down/stop)
+        """
+        direction = data.get('direction', 'stop')
+
+        if direction == 'up':
+            logger.info("Hoist UP: Motor 7 forward")
+            self.actuator_controller.set_motor_speed(7, 400)  # 50% forward
+        elif direction == 'down':
+            logger.info("Hoist DOWN: Motor 7 backward")
+            self.actuator_controller.set_motor_speed(7, -400)  # 50% backward
+        else:  # stop
+            logger.info("Hoist STOP: Motor 7")
+            self.actuator_controller.set_motor_speed(7, 0)
+
+    def _handle_traverse_command(self, data: Dict[str, Any]):
+        """
+        Handle traverse left/right command.
+
+        Motor mapping: Motor 6
+
+        Args:
+            data: Command data with direction (left/right/stop)
+        """
+        direction = data.get('direction', 'stop')
+
+        if direction == 'left':
+            logger.info("Traverse LEFT: Motor 6 forward")
+            self.actuator_controller.set_motor_speed(6, 400)  # 50% forward
+        elif direction == 'right':
+            logger.info("Traverse RIGHT: Motor 6 backward")
+            self.actuator_controller.set_motor_speed(6, -400)  # 50% backward
+        else:  # stop
+            logger.info("Traverse STOP: Motor 6")
+            self.actuator_controller.set_motor_speed(6, 0)
 
     def get_pong_data(self) -> Optional[Dict[str, Any]]:
         """
