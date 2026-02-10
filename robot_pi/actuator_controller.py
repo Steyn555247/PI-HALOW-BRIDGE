@@ -214,13 +214,20 @@ class ActuatorController:
 
                 # Initialize servo
                 try:
+                    logger.info(f"Initializing servo on GPIO {self.servo_gpio} at {self.servo_freq}Hz...")
+                    GPIO.setwarnings(False)  # Suppress warnings about channel already in use
                     GPIO.setmode(GPIO.BCM)
+                    logger.info(f"GPIO mode set to BCM")
                     GPIO.setup(self.servo_gpio, GPIO.OUT)
+                    logger.info(f"GPIO {self.servo_gpio} configured as OUTPUT")
                     self.servo_pwm = GPIO.PWM(self.servo_gpio, self.servo_freq)
-                    self.servo_pwm.start(0)  # Start with 0 duty (no pulse)
-                    logger.info(f"Servo initialized on GPIO {self.servo_gpio}")
+                    logger.info(f"PWM object created")
+                    self.servo_pwm.start(7.5)  # Start at neutral position (not 0)
+                    logger.info(f"Servo initialized on GPIO {self.servo_gpio} - PWM started at 7.5% (neutral)")
                 except Exception as e:
-                    logger.error(f"Failed to initialize servo: {e}")
+                    logger.error(f"Failed to initialize servo on GPIO {self.servo_gpio}: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
                     self.servo_pwm = None
             else:
                 # SIM_MODE or no hardware - use mocks
