@@ -58,6 +58,11 @@ class CommandExecutor:
         self.chainsaw1_running = False
         self.chainsaw2_running = False
 
+        # Chainsaw move auto-stop timers (1 second max duration)
+        self._chainsaw_move_timeout_s = 1.0
+        self._chainsaw1_move_timer = None
+        self._chainsaw2_move_timer = None
+
         # Ping/Pong tracking for RTT measurement
         # When we receive a ping, we store it and include pong data in telemetry
         self._last_ping_ts = 0.0      # Timestamp from the ping message
@@ -373,6 +378,8 @@ class CommandExecutor:
         - chainsaw_id 1 → Motor 2
         - chainsaw_id 2 → Motor 3
 
+        Max duration: 1 second (auto-stops for safety)
+
         Args:
             data: Command data with chainsaw_id and direction (up/down/stop)
         """
@@ -386,15 +393,42 @@ class CommandExecutor:
         # Map chainsaw_id to motor: 1→Motor 2, 2→Motor 3
         motor_id = 1 + chainsaw_id  # 1→2, 2→3
 
+        # Cancel existing timer for this chainsaw
+        if chainsaw_id == 1 and self._chainsaw1_move_timer:
+            self._chainsaw1_move_timer.cancel()
+            self._chainsaw1_move_timer = None
+        elif chainsaw_id == 2 and self._chainsaw2_move_timer:
+            self._chainsaw2_move_timer.cancel()
+            self._chainsaw2_move_timer = None
+
         if direction == 'up':
-            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward")
+            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (max {self._chainsaw_move_timeout_s}s)")
             self.actuator_controller.set_motor_speed(motor_id, 400)  # 50% forward
+            # Start auto-stop timer
+            self._start_chainsaw_move_timer(chainsaw_id, motor_id)
         elif direction == 'down':
-            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward")
+            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (max {self._chainsaw_move_timeout_s}s)")
             self.actuator_controller.set_motor_speed(motor_id, -400)  # 50% backward
+            # Start auto-stop timer
+            self._start_chainsaw_move_timer(chainsaw_id, motor_id)
         else:  # stop
             logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
             self.actuator_controller.set_motor_speed(motor_id, 0)
+
+    def _start_chainsaw_move_timer(self, chainsaw_id: int, motor_id: int):
+        """Start auto-stop timer for chainsaw move (1 second max)."""
+        def auto_stop():
+            logger.info(f"Chainsaw {chainsaw_id} AUTO-STOP: Motor {motor_id} (1s timeout)")
+            self.actuator_controller.set_motor_speed(motor_id, 0)
+
+        timer = threading.Timer(self._chainsaw_move_timeout_s, auto_stop)
+        timer.daemon = True
+        timer.start()
+
+        if chainsaw_id == 1:
+            self._chainsaw1_move_timer = timer
+        else:
+            self._chainsaw2_move_timer = timer
 
     def _handle_climb_command(self, data: Dict[str, Any]):
         """
