@@ -169,6 +169,11 @@ class BackendClient:
             logger.info(f"Traverse command: {data}")
             self.on_command('traverse_command', data)
 
+        @self.sio.on('brake_command')
+        def on_brake_command(data):
+            logger.info(f"Brake command: {data}")
+            self.on_command('brake_command', data)
+
     def connect(self):
         """Connect to backend Socket.IO server."""
         try:

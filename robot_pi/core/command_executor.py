@@ -206,6 +206,9 @@ class CommandExecutor:
         elif command_type == 'traverse_command':
             self._handle_traverse_command(data)
 
+        elif command_type == 'brake_command':
+            self._handle_brake_command(data)
+
         else:
             logger.warning(f"Unknown command type: {command_type} (ignored)")
 
@@ -382,21 +385,18 @@ class CommandExecutor:
 
     def _handle_climb_command(self, data: Dict[str, Any]):
         """
-        Handle hoist/climb up/down command.
+        Handle hoist/climb up command.
 
-        Motor mapping: Motor 7
+        Motor mapping: Motor 7 (up only, down is handled by brake_command)
 
         Args:
-            data: Command data with direction (up/down/stop)
+            data: Command data with direction (up/stop)
         """
         direction = data.get('direction', 'stop')
 
         if direction == 'up':
             logger.info("Hoist UP: Motor 7 forward")
             self.actuator_controller.set_motor_speed(7, 400)  # 50% forward
-        elif direction == 'down':
-            logger.info("Hoist DOWN: Motor 7 backward")
-            self.actuator_controller.set_motor_speed(7, -400)  # 50% backward
         else:  # stop
             logger.info("Hoist STOP: Motor 7")
             self.actuator_controller.set_motor_speed(7, 0)
@@ -421,6 +421,28 @@ class CommandExecutor:
         else:  # stop
             logger.info("Traverse STOP: Motor 6")
             self.actuator_controller.set_motor_speed(6, 0)
+
+    def _handle_brake_command(self, data: Dict[str, Any]):
+        """
+        Handle brake engage/release command (servo control).
+
+        Servo position:
+        - engage: 30 degrees (position 0.167)
+        - release: 0 degrees (position 0.0)
+
+        Args:
+            data: Command data with action (engage/release)
+        """
+        action = data.get('action', 'release')
+
+        if action == 'engage':
+            # 30 degrees = 30/180 = 0.167 position
+            logger.info("Brake ENGAGE: Servo to 30°")
+            self.actuator_controller.set_servo_position(0.167)
+        else:  # release
+            # 0 degrees = 0.0 position
+            logger.info("Brake RELEASE: Servo to 0°")
+            self.actuator_controller.set_servo_position(0.0)
 
     def get_pong_data(self) -> Optional[Dict[str, Any]]:
         """
