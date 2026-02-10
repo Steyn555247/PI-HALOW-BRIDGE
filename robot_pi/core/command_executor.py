@@ -54,10 +54,6 @@ class CommandExecutor:
         self.height = 0.0
         self.force = 0.0
 
-        # Chainsaw running state (for toggle commands)
-        self.chainsaw1_running = False
-        self.chainsaw2_running = False
-
         # Chainsaw move auto-stop timers (1 second max duration)
         self._chainsaw_move_timeout_s = 1.0
         self._chainsaw1_move_timer = None
@@ -331,19 +327,37 @@ class CommandExecutor:
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
+                # L2 button (index 6): Chainsaw 1 On/Off (Motor 4) - Push-button
+                elif index == 6:
+                    if value > 0:
+                        logger.info("L2 button: Chainsaw 1 ON (Motor 4)")
+                        self.actuator_controller.set_motor_speed(4, 400)  # 50% forward
+                    else:
+                        logger.info("L2 button: Chainsaw 1 OFF (Motor 4)")
+                        self.actuator_controller.set_motor_speed(4, 0)  # Stop
+
+                # R2 button (index 7): Chainsaw 2 On/Off (Motor 5) - Push-button
+                elif index == 7:
+                    if value > 0:
+                        logger.info("R2 button: Chainsaw 2 ON (Motor 5)")
+                        self.actuator_controller.set_motor_speed(5, 400)  # 50% forward
+                    else:
+                        logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
+                        self.actuator_controller.set_motor_speed(5, 0)  # Stop
+
         except (ValueError, TypeError) as e:
             logger.warning(f"Invalid input_event data: {e}")
 
     def _handle_chainsaw_command(self, data: Dict[str, Any]):
         """
-        Handle chainsaw on/off toggle command.
+        Handle chainsaw on/off push-button command.
 
         Motor mapping:
         - chainsaw_id 1 → Motor 4
         - chainsaw_id 2 → Motor 5
 
         Args:
-            data: Command data with chainsaw_id and action (on/off)
+            data: Command data with chainsaw_id and action ('on'/'off' or 'press'/'release')
         """
         # Update input time to prevent timeout
         with self._input_lock:
@@ -355,20 +369,13 @@ class CommandExecutor:
         # Map chainsaw_id to motor: 1→Motor 4, 2→Motor 5
         motor_id = 3 + chainsaw_id  # 1→4, 2→5
 
-        if action == 'on':
+        # Support both 'on'/'off' and 'press'/'release' for compatibility
+        if action in ('on', 'press'):
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (forward)")
             self.actuator_controller.set_motor_speed(motor_id, 400)  # 50% forward
-            if chainsaw_id == 1:
-                self.chainsaw1_running = True
-            else:
-                self.chainsaw2_running = True
-        else:  # off
+        else:  # 'off' or 'release'
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF")
             self.actuator_controller.set_motor_speed(motor_id, 0)
-            if chainsaw_id == 1:
-                self.chainsaw1_running = False
-            else:
-                self.chainsaw2_running = False
 
     def _handle_chainsaw_move(self, data: Dict[str, Any]):
         """
