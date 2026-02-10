@@ -92,7 +92,7 @@ ACTIVE_MOTORS = 8  # All 8 motors used (0-7)
 
 # Servo Configuration (PCA9685 I2C PWM Controller)
 # PCA9685 16-channel servo driver - zero jitter, supports up to 16 servos
-USE_PCA9685 = os.getenv('USE_PCA9685', 'true').lower() == 'true'
+USE_PCA9685 = os.getenv('USE_PCA9685', 'false').lower() == 'true'
 PCA9685_ADDRESS = int(os.getenv('PCA9685_ADDRESS', '0x40'), 16)
 PCA9685_CHANNELS = int(os.getenv('PCA9685_CHANNELS', '16'))
 SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '0'))  # Which channel (0-15) the servo is on
