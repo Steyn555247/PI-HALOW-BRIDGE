@@ -393,8 +393,8 @@ class CommandExecutor:
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
                         self.actuator_controller.set_motor_speed(5, 0)  # Stop
 
-                # Dpad Down button (index 13): Brake engage/release
-                elif index == 13:
+                # Dpad Down button (index 11): Brake engage/release
+                elif index == 11:
                     if value > 0:
                         logger.info("Dpad Down: Brake ENGAGE (servo to 1°)")
                         self.actuator_controller.set_servo_position(0.0056)  # 1° engage
