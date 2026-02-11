@@ -390,6 +390,15 @@ class CommandExecutor:
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
                         self.actuator_controller.set_motor_speed(5, 0)  # Stop
 
+                # Dpad Down button (index 13): Brake engage/release
+                elif index == 13:
+                    if value > 0:
+                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°)")
+                        self.actuator_controller.set_servo_position(0.0056)  # 1° engage
+                    else:
+                        logger.info("Dpad Down: Brake RELEASE (servo to 60°)")
+                        self.actuator_controller.set_servo_position(0.3333)  # 60° release
+
         except (ValueError, TypeError) as e:
             logger.warning(f"Invalid input_event data: {e}")
 
@@ -609,8 +618,8 @@ class CommandExecutor:
         Handle brake engage/release command (servo control).
 
         Servo position:
-        - engage: 60 degrees (position 0.333) = ~6.2% duty at 50Hz
-        - release: 0 degrees (position 0.0) = 2.5% duty at 50Hz
+        - engage: 1 degree (position 0.0056)
+        - release: 60 degrees (position 0.3333)
 
         Args:
             data: Command data with action (engage/release)
@@ -622,15 +631,15 @@ class CommandExecutor:
         action = data.get('action', 'release')
 
         if action == 'engage':
-            # 60 degrees = 60/180 = 0.333 position
-            logger.info("Brake ENGAGE: Servo to 60°")
-            success = self.actuator_controller.set_servo_position(0.333)
+            # 1 degree = 1/180 = 0.0056 position
+            logger.info("Brake ENGAGE: Servo to 1°")
+            success = self.actuator_controller.set_servo_position(0.0056)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
         else:  # release
-            # 0 degrees = 0.0 position
-            logger.info("Brake RELEASE: Servo to 0°")
-            success = self.actuator_controller.set_servo_position(0.0)
+            # 60 degrees = 60/180 = 0.3333 position
+            logger.info("Brake RELEASE: Servo to 60°")
+            success = self.actuator_controller.set_servo_position(0.3333)
             if not success:
                 logger.warning("Brake RELEASE failed - servo command returned False")
 
