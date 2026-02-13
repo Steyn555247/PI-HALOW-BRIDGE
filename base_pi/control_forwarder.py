@@ -26,13 +26,17 @@ class ControlForwarder:
     """Forwards authenticated control commands to Robot Pi over TCP"""
 
     def __init__(self, robot_ip: str, control_port: int, reconnect_delay: float = 0.5,
-                 framer: Optional[SecureFramer] = None):
+                 framer: Optional[SecureFramer] = None,
+                 on_command_sent: Optional[callable] = None):
         self.robot_ip = robot_ip
         self.control_port = control_port
         self.reconnect_delay = reconnect_delay  # Reduced for faster recovery
 
         # Use provided framer or create new one
         self.framer = framer or SecureFramer(role="base_pi_control")
+
+        # Callback for command recording
+        self.on_command_sent = on_command_sent
 
         self.socket: Optional[socket.socket] = None
         self.connected = False
@@ -137,21 +141,53 @@ class ControlForwarder:
                     self.socket.sendall(frame)
                     self.commands_sent += 1
                     logger.debug(f"Sent command: {command_type} (seq={self.framer.get_send_seq()})")
+
+                    # Record command if callback is set
+                    if self.on_command_sent:
+                        try:
+                            self.on_command_sent(command_type, data or {}, True)
+                        except Exception as cb_err:
+                            logger.debug(f"Command callback error: {cb_err}")
+
                     return True
                 else:
                     logger.warning("Socket is None, cannot send command")
                     self.commands_failed += 1
+
+                    # Record failed command if callback is set
+                    if self.on_command_sent:
+                        try:
+                            self.on_command_sent(command_type, data or {}, False)
+                        except Exception as cb_err:
+                            logger.debug(f"Command callback error: {cb_err}")
+
                     return False
 
         except FramingError as e:
             logger.error(f"Framing error for {command_type}: {e}")
             self.commands_failed += 1
+
+            # Record failed command if callback is set
+            if self.on_command_sent:
+                try:
+                    self.on_command_sent(command_type, data or {}, False)
+                except Exception as cb_err:
+                    logger.debug(f"Command callback error: {cb_err}")
+
             return False
 
         except Exception as e:
             logger.error(f"Failed to send command {command_type}: {e}")
             self.connected = False
             self.commands_failed += 1
+
+            # Record failed command if callback is set
+            if self.on_command_sent:
+                try:
+                    self.on_command_sent(command_type, data or {}, False)
+                except Exception as cb_err:
+                    logger.debug(f"Command callback error: {cb_err}")
+
             return False
 
     def start(self):

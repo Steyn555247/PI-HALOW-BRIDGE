@@ -62,11 +62,11 @@ DASHBOARD_WS_PORT = int(os.getenv('DASHBOARD_WS_PORT', '5005'))
 TELEMETRY_BUFFER_SIZE = int(os.getenv('TELEMETRY_BUFFER_SIZE', '600'))
 
 # Storage Configuration (SSD)
-STORAGE_ENABLED = os.getenv('STORAGE_ENABLED', 'false').lower() == 'true'
-STORAGE_BASE_PATH = os.getenv('STORAGE_BASE_PATH', '/mnt/ssd/serpent_data')
-TELEMETRY_RETENTION_DAYS = int(os.getenv('TELEMETRY_RETENTION_DAYS', '30'))
-VIDEO_RETENTION_DAYS = int(os.getenv('VIDEO_RETENTION_DAYS', '7'))
-VIDEO_ROTATION_MINUTES = int(os.getenv('VIDEO_ROTATION_MINUTES', '10'))
+# Note: Video recording moved to separate project: ~/serpent-video-recorder
+STORAGE_ENABLED = os.getenv('STORAGE_ENABLED', 'true').lower() == 'true'  # Enabled by default
+STORAGE_BASE_PATH = os.getenv('STORAGE_BASE_PATH', '/media/serpentbase/SSK SSD/serpent_recordings')
+TELEMETRY_RETENTION_DAYS = int(os.getenv('TELEMETRY_RETENTION_DAYS', '3650'))  # ~10 years (no auto-delete)
+COMMAND_RETENTION_DAYS = int(os.getenv('COMMAND_RETENTION_DAYS', '3650'))  # ~10 years (no auto-delete)
 
-# Controller telemetry rate
-CONTROLLER_TELEMETRY_RATE_HZ = float(os.getenv('CONTROLLER_TELEM_RATE', '1.0'))
+# Controller telemetry rate (10 Hz for <100ms latency)
+CONTROLLER_TELEMETRY_RATE_HZ = float(os.getenv('CONTROLLER_TELEM_RATE', '10.0'))

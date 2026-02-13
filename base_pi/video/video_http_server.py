@@ -18,7 +18,7 @@ import logging
 import time
 import json
 import os
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from functools import partial
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
@@ -264,7 +264,7 @@ class VideoHTTPServer:
         self.port = port
         self.video_receiver = video_receiver
         self.telemetry_buffer = telemetry_buffer
-        self.server: Optional[HTTPServer] = None
+        self.server: Optional[ThreadingHTTPServer] = None
 
         logger.info(f"VideoHTTPServer initialized (port={port})")
 
@@ -274,7 +274,7 @@ class VideoHTTPServer:
             # Create handler with video_receiver and telemetry_buffer bound
             handler = partial(VideoHTTPHandler, self.video_receiver, self.telemetry_buffer)
 
-            self.server = HTTPServer(('0.0.0.0', self.port), handler)
+            self.server = ThreadingHTTPServer(('0.0.0.0', self.port), handler)
             logger.info(f"Video HTTP server started on port {self.port}")
             logger.info(f"  MJPEG stream: http://localhost:{self.port}/video")
             logger.info(f"  Single frame: http://localhost:{self.port}/frame")

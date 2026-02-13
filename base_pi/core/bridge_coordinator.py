@@ -42,7 +42,8 @@ from base_pi.telemetry_buffer import TelemetryBuffer
 from base_pi.telemetry_websocket import TelemetryWebSocketServer, run_websocket_server
 from base_pi.telemetry_storage import TelemetryStorage
 from base_pi.telemetry_controller import format_for_controller
-from base_pi.video_recorder import VideoRecorder
+from base_pi.control_storage import ControlStorage
+# Note: Video recording moved to separate project: ~/serpent-video-recorder
 
 # Common imports
 from common.framing import SecureFramer
@@ -82,12 +83,22 @@ class HaLowBridge:
         # State manager
         self.state = StateManager(default_camera_id=config.DEFAULT_CAMERA_ID)
 
+        # Storage for control commands (initialized before control_forwarder)
+        self.control_storage: Optional[ControlStorage] = None
+        if config.STORAGE_ENABLED:
+            commands_path = os.path.join(config.STORAGE_BASE_PATH, 'commands')
+            self.control_storage = ControlStorage(
+                base_path=commands_path,
+                retention_days=config.COMMAND_RETENTION_DAYS
+            )
+
         # Components
         self.control_forwarder = ControlForwarder(
             robot_ip=config.ROBOT_PI_IP,
             control_port=config.CONTROL_PORT,
             reconnect_delay=config.RECONNECT_DELAY,
-            framer=self.framer
+            framer=self.framer,
+            on_command_sent=self._on_command_sent if self.control_storage else None
         )
 
         self.telemetry_receiver = TelemetryReceiver(
@@ -112,9 +123,8 @@ class HaLowBridge:
         self.websocket_server: Optional[TelemetryWebSocketServer] = None
         self.websocket_thread: Optional[threading.Thread] = None
 
-        # Storage for telemetry and video
+        # Storage for telemetry (video recording moved to ~/serpent-video-recorder)
         self.telemetry_storage: Optional[TelemetryStorage] = None
-        self.video_recorder: Optional[VideoRecorder] = None
         if config.STORAGE_ENABLED:
             # Initialize telemetry storage
             telemetry_path = os.path.join(config.STORAGE_BASE_PATH, 'telemetry')
@@ -122,15 +132,6 @@ class HaLowBridge:
                 base_path=telemetry_path,
                 retention_days=config.TELEMETRY_RETENTION_DAYS
             )
-
-            # Initialize video recorder if video is enabled
-            if self.video_receiver:
-                video_path = os.path.join(config.STORAGE_BASE_PATH, 'video')
-                self.video_recorder = VideoRecorder(
-                    base_path=video_path,
-                    retention_days=config.VIDEO_RETENTION_DAYS,
-                    rotation_minutes=config.VIDEO_ROTATION_MINUTES
-                )
 
         # Backend client
         self.backend_client = BackendClient(
@@ -197,6 +198,11 @@ class HaLowBridge:
     def _send_estop_engage(self, cmd_type: str, data: Dict[str, Any]):
         """Send E-STOP engage command to Robot Pi."""
         self.control_forwarder.send_command(cmd_type, data)
+
+    def _on_command_sent(self, command_type: str, data: Dict[str, Any], success: bool):
+        """Callback when a command is sent - record to storage."""
+        if self.control_storage:
+            self.control_storage.write_command(command_type, data, success)
 
     def _on_telemetry_received(self, telemetry: Dict[str, Any]):
         """Callback when telemetry is received from Robot Pi."""
@@ -294,9 +300,11 @@ class HaLowBridge:
         if self.telemetry_storage:
             self.telemetry_storage.start()
 
-        # Start video recorder
-        if self.video_recorder and self.video_receiver:
-            self.video_recorder.start_recording(self.video_receiver)
+        # Start control storage
+        if self.control_storage:
+            self.control_storage.start()
+
+        # Note: Video recording moved to separate service (serpent-video-recorder)
 
         # Start WebSocket server for dashboard
         if config.DASHBOARD_ENABLED and self.telemetry_buffer:
@@ -375,8 +383,8 @@ class HaLowBridge:
         if self.telemetry_storage:
             self.telemetry_storage.stop()
 
-        if self.video_recorder:
-            self.video_recorder.stop_recording()
+        if self.control_storage:
+            self.control_storage.stop()
 
         # Stop Video HTTP server
         if self.http_server:
