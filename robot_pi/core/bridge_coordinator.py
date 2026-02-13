@@ -220,6 +220,9 @@ class HaLowBridge:
         # Start motor timeout monitor
         self.command_executor.start_motor_timeout_monitor()
 
+        # Start chainsaw timeout monitor (1.5s max continuous run)
+        self.command_executor.start_chainsaw_timeout_monitor()
+
         # Start control server
         if not self.control_server.start_server():
             logger.error("Failed to start control server - retrying in background")
@@ -246,6 +249,9 @@ class HaLowBridge:
 
         # Stop motor timeout monitor
         self.command_executor.stop_motor_timeout_monitor()
+
+        # Stop chainsaw timeout monitor
+        self.command_executor.stop_chainsaw_timeout_monitor()
 
         # Stop components
         self.actuator_controller.stop()
