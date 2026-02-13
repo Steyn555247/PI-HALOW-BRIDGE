@@ -355,14 +355,12 @@ class CommandExecutor:
                         if self._chainsaw1_timed_out:
                             # Timed out - ignore input until stick released
                             logger.debug("Chainsaw 1 blocked: release stick to reset")
-                        elif self._chainsaw1_start_time is None:
-                            # First activation - start timer and motor
-                            self._chainsaw1_start_time = time.time()
-                            speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
-                            logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
-                            self.actuator_controller.set_motor_speed(2, speed)
                         else:
-                            # Running - check timeout
+                            # Start timer if not already running
+                            if self._chainsaw1_start_time is None:
+                                self._chainsaw1_start_time = time.time()
+
+                            # Check timeout
                             elapsed = time.time() - self._chainsaw1_start_time
                             if elapsed > self._chainsaw_max_duration_s:
                                 # Timeout reached - stop motor, set timed_out flag
@@ -370,7 +368,7 @@ class CommandExecutor:
                                 self.actuator_controller.set_motor_speed(2, 0)
                                 self._chainsaw1_timed_out = True
                             else:
-                                # Still within time limit - update motor speed
+                                # Always update motor speed when not timed out
                                 speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
                                 logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
                                 self.actuator_controller.set_motor_speed(2, speed)
@@ -391,14 +389,12 @@ class CommandExecutor:
                         if self._chainsaw2_timed_out:
                             # Timed out - ignore input until stick released
                             logger.debug("Chainsaw 2 blocked: release stick to reset")
-                        elif self._chainsaw2_start_time is None:
-                            # First activation - start timer and motor
-                            self._chainsaw2_start_time = time.time()
-                            speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
-                            logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
-                            self.actuator_controller.set_motor_speed(3, speed)
                         else:
-                            # Running - check timeout
+                            # Start timer if not already running
+                            if self._chainsaw2_start_time is None:
+                                self._chainsaw2_start_time = time.time()
+
+                            # Check timeout
                             elapsed = time.time() - self._chainsaw2_start_time
                             if elapsed > self._chainsaw_max_duration_s:
                                 # Timeout reached - stop motor, set timed_out flag
@@ -406,7 +402,7 @@ class CommandExecutor:
                                 self.actuator_controller.set_motor_speed(3, 0)
                                 self._chainsaw2_timed_out = True
                             else:
-                                # Still within time limit - update motor speed
+                                # Always update motor speed when not timed out
                                 speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
                                 logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
                                 self.actuator_controller.set_motor_speed(3, speed)
