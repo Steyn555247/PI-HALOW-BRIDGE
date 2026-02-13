@@ -61,9 +61,12 @@ class CommandExecutor:
         self._chainsaw2_axis_value = 0.0
 
         # Chainsaw up/down timeout (background thread monitors this)
-        self._chainsaw_timeout_s = 1.5  # Max continuous run time
+        # 1.5 seconds max continuous run time - prevents chainsaw from running indefinitely
+        self._chainsaw_timeout_s = 1.5  # Max continuous run time (1.5 seconds)
         self._chainsaw1_start_time = None  # When motor 2 started (None = not running)
         self._chainsaw2_start_time = None  # When motor 3 started
+        self._chainsaw1_timed_out = False  # True when motor was stopped due to timeout
+        self._chainsaw2_timed_out = False  # True when motor was stopped due to timeout
         self._chainsaw_lock = threading.Lock()
         self._chainsaw_timeout_thread = None
         self._chainsaw_timeout_running = False
@@ -181,9 +184,13 @@ class CommandExecutor:
         Background thread that monitors chainsaw up/down motors for timeout.
 
         Stops motor if it has been running continuously for > 1.5 seconds.
-        User must release joystick/button to reset and use again.
+        User must release joystick/button (send 'stop') to reset and use again.
+
+        The thread continuously enforces the stop state - even if other code tries
+        to set the motor speed, this thread will set it back to 0 every 50ms while
+        in timeout state.
         """
-        logger.info("Chainsaw timeout monitor loop started")
+        logger.info(f"Chainsaw timeout monitor loop started (timeout={self._chainsaw_timeout_s}s)")
         loop_count = 0
 
         while self._chainsaw_timeout_running:
@@ -195,27 +202,39 @@ class CommandExecutor:
                 # Log every 2 seconds (40 loops) to confirm thread is running
                 if loop_count % 40 == 0:
                     with self._chainsaw_lock:
-                        logger.debug(f"Chainsaw timeout thread alive: cs1_time={self._chainsaw1_start_time}, cs2_time={self._chainsaw2_start_time}")
+                        cs1_status = "TIMED_OUT" if self._chainsaw1_timed_out else (
+                            f"running {now - self._chainsaw1_start_time:.1f}s" if self._chainsaw1_start_time else "idle"
+                        )
+                        cs2_status = "TIMED_OUT" if self._chainsaw2_timed_out else (
+                            f"running {now - self._chainsaw2_start_time:.1f}s" if self._chainsaw2_start_time else "idle"
+                        )
+                        logger.info(f"Chainsaw timeout monitor: CS1={cs1_status}, CS2={cs2_status}")
 
                 with self._chainsaw_lock:
                     # Check chainsaw 1 (Motor 2)
-                    # Only check if start_time is a valid timestamp (> 0)
-                    # None = not running, -1 = timed out, > 0 = running
-                    if self._chainsaw1_start_time is not None and self._chainsaw1_start_time > 0:
+                    if self._chainsaw1_timed_out:
+                        # ENFORCE: Keep motor stopped while in timeout state
+                        # This prevents any race condition where other code might restart motor
+                        self.actuator_controller.set_motor_speed(2, 0)
+                    elif self._chainsaw1_start_time is not None:
                         elapsed = now - self._chainsaw1_start_time
                         if elapsed > self._chainsaw_timeout_s:
-                            logger.info(f"CHAINSAW 1 TIMEOUT: {elapsed:.2f}s exceeded {self._chainsaw_timeout_s}s - STOPPING Motor 2")
+                            logger.warning(f"CHAINSAW 1 TIMEOUT: {elapsed:.1f}s exceeded {self._chainsaw_timeout_s}s - STOPPING Motor 2")
                             self.actuator_controller.set_motor_speed(2, 0)
-                            # Set to -1 to indicate "timed out, waiting for release"
-                            self._chainsaw1_start_time = -1
+                            self._chainsaw1_timed_out = True
+                            self._chainsaw1_start_time = None
 
                     # Check chainsaw 2 (Motor 3)
-                    if self._chainsaw2_start_time is not None and self._chainsaw2_start_time > 0:
+                    if self._chainsaw2_timed_out:
+                        # ENFORCE: Keep motor stopped while in timeout state
+                        self.actuator_controller.set_motor_speed(3, 0)
+                    elif self._chainsaw2_start_time is not None:
                         elapsed = now - self._chainsaw2_start_time
                         if elapsed > self._chainsaw_timeout_s:
-                            logger.info(f"CHAINSAW 2 TIMEOUT: {elapsed:.2f}s exceeded {self._chainsaw_timeout_s}s - STOPPING Motor 3")
+                            logger.warning(f"CHAINSAW 2 TIMEOUT: {elapsed:.1f}s exceeded {self._chainsaw_timeout_s}s - STOPPING Motor 3")
                             self.actuator_controller.set_motor_speed(3, 0)
-                            self._chainsaw2_start_time = -1
+                            self._chainsaw2_timed_out = True
+                            self._chainsaw2_start_time = None
 
             except Exception as e:
                 logger.error(f"Error in chainsaw timeout loop: {e}")
@@ -404,54 +423,59 @@ class CommandExecutor:
                 DEADZONE = 0.15
 
                 # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
+                # NOTE: This is LEGACY - Flutter app sends button events (indices 16-17) instead
+                # Kept for compatibility with other input sources that may send raw axis values
                 if index == 1:
                     self._chainsaw1_axis_value = float(value)
 
                     # Apply deadzone - treat small values as zero
                     if abs(self._chainsaw1_axis_value) < DEADZONE:
-                        logger.debug("Chainsaw 1 STOP: Stick released (Motor 2)")
+                        logger.info("Chainsaw 1 STOP: Stick released via axis (Motor 2)")
                         with self._chainsaw_lock:
-                            self._chainsaw1_start_time = None  # Clear timer, ready for next use
+                            self._chainsaw1_start_time = None  # Clear timer
+                            self._chainsaw1_timed_out = False  # Clear timeout flag, ready for next use
                         self.actuator_controller.set_motor_speed(2, 0)
                     else:
                         # All motor control inside lock to prevent race with timeout thread
                         with self._chainsaw_lock:
-                            # Check if timed out (-1 = timed out, must release to reset)
-                            if self._chainsaw1_start_time == -1:
-                                logger.debug("Chainsaw 1 blocked: release stick to reset")
-                                # Don't set motor speed - stay stopped
+                            # Check if timed out - must release to reset
+                            if self._chainsaw1_timed_out:
+                                logger.debug("Chainsaw 1 blocked: release stick to reset timeout")
+                                # Don't set motor speed - timeout thread enforces stop
                             else:
                                 # Start timer if not already running
                                 if self._chainsaw1_start_time is None:
                                     self._chainsaw1_start_time = time.time()
-                                    logger.debug("Chainsaw 1: Timer started")
+                                    logger.info("Chainsaw 1: Timer started via axis")
                                 # Set motor speed (inside lock so timeout can't race)
                                 speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
                                 logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
                                 self.actuator_controller.set_motor_speed(2, speed)
 
                 # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
+                # NOTE: This is LEGACY - Flutter app sends button events (indices 20-21) instead
                 elif index == 3:
                     self._chainsaw2_axis_value = float(value)
 
                     # Apply deadzone - treat small values as zero
                     if abs(self._chainsaw2_axis_value) < DEADZONE:
-                        logger.debug("Chainsaw 2 STOP: Stick released (Motor 3)")
+                        logger.info("Chainsaw 2 STOP: Stick released via axis (Motor 3)")
                         with self._chainsaw_lock:
-                            self._chainsaw2_start_time = None  # Clear timer, ready for next use
+                            self._chainsaw2_start_time = None  # Clear timer
+                            self._chainsaw2_timed_out = False  # Clear timeout flag, ready for next use
                         self.actuator_controller.set_motor_speed(3, 0)
                     else:
                         # All motor control inside lock to prevent race with timeout thread
                         with self._chainsaw_lock:
-                            # Check if timed out (-1 = timed out, must release to reset)
-                            if self._chainsaw2_start_time == -1:
-                                logger.debug("Chainsaw 2 blocked: release stick to reset")
-                                # Don't set motor speed - stay stopped
+                            # Check if timed out - must release to reset
+                            if self._chainsaw2_timed_out:
+                                logger.debug("Chainsaw 2 blocked: release stick to reset timeout")
+                                # Don't set motor speed - timeout thread enforces stop
                             else:
                                 # Start timer if not already running
                                 if self._chainsaw2_start_time is None:
                                     self._chainsaw2_start_time = time.time()
-                                    logger.debug("Chainsaw 2: Timer started")
+                                    logger.info("Chainsaw 2: Timer started via axis")
                                 # Set motor speed (inside lock so timeout can't race)
                                 speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
                                 logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
@@ -545,7 +569,7 @@ class CommandExecutor:
 
         Note: Continuous analog stick control is handled in _handle_input_event.
         This method is for discrete button/command-based control.
-        Uses same timeout system as axis control (1.5s max).
+        Uses same timeout system as axis control (1.5 seconds max).
 
         Args:
             data: Command data with chainsaw_id and direction (up/down/stop)
@@ -566,24 +590,26 @@ class CommandExecutor:
         if direction == 'up' or direction == 'down':
             # Use same timeout system as axis control
             with self._chainsaw_lock:
-                # Get current state for this chainsaw
+                # Check if timed out - must send 'stop' to reset
                 if chainsaw_id == 1:
+                    is_timed_out = self._chainsaw1_timed_out
                     start_time = self._chainsaw1_start_time
                 else:
+                    is_timed_out = self._chainsaw2_timed_out
                     start_time = self._chainsaw2_start_time
 
-                # Check if timed out (-1 = timed out, must send 'stop' to reset)
-                if start_time == -1:
-                    logger.info(f"Chainsaw {chainsaw_id} blocked: send 'stop' command to reset")
+                if is_timed_out:
+                    logger.info(f"Chainsaw {chainsaw_id} BLOCKED: timed out, release stick to reset")
+                    # Don't set motor - timeout thread enforces stop
                     return
 
                 # Start timer if not already running
-                if start_time is None or start_time <= 0:
+                if start_time is None:
                     if chainsaw_id == 1:
                         self._chainsaw1_start_time = time.time()
                     else:
                         self._chainsaw2_start_time = time.time()
-                    logger.info(f"Chainsaw {chainsaw_id} timer started")
+                    logger.info(f"Chainsaw {chainsaw_id} timer started (1.5s timeout)")
 
                 # Set motor speed (inside lock so timeout can't race)
                 if direction == 'up':
@@ -594,13 +620,15 @@ class CommandExecutor:
                     self.actuator_controller.set_motor_speed(motor_id, -speed)
 
         else:  # stop
-            logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
-            # Clear timer - ready for next use
+            logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id} - clearing timer and timeout")
+            # Clear timer AND timeout flag - ready for next use
             with self._chainsaw_lock:
                 if chainsaw_id == 1:
                     self._chainsaw1_start_time = None
+                    self._chainsaw1_timed_out = False
                 else:
                     self._chainsaw2_start_time = None
+                    self._chainsaw2_timed_out = False
             self.actuator_controller.set_motor_speed(motor_id, 0)
 
     def _handle_climb_command(self, data: Dict[str, Any]):
