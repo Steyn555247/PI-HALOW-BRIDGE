@@ -11,8 +11,9 @@ SAFETY:
 """
 
 import logging
+import time
 import socketio
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 
 from common.constants import MSG_EMERGENCY_STOP, ESTOP_CLEAR_CONFIRM
 
@@ -50,6 +51,12 @@ class BackendClient:
 
         # Socket.IO client
         self.sio = socketio.Client(reconnection=True, reconnection_delay=2)
+
+        # E-stop event tracking to prevent duplicates from multiple event types
+        self._last_estop_event_time: float = 0.0
+        self._last_estop_event_active: Optional[bool] = None
+        self._estop_event_window_s: float = 0.1  # 100ms window to catch near-simultaneous events
+
         self._setup_handlers()
 
         logger.info(f"BackendClient initialized (url={backend_url})")
@@ -67,55 +74,44 @@ class BackendClient:
             logger.warning("Disconnected from serpent_backend")
             self.on_connection_change(False)
 
-        # IMPORTANT: Translate legacy 'emergency_toggle' to proper SET semantics
+        # =====================================================================
+        # E-STOP EVENT CONSOLIDATION
+        #
+        # All three E-stop events are routed through _handle_emergency_event()
+        # to ensure only ONE command is sent per logical event, preventing:
+        # 1. Multiple triggers from backend sending both toggle AND status
+        # 2. Duplicate events from rapid button presses
+        # 3. Re-broadcasts on reconnection
+        # =====================================================================
+
         @self.sio.on('emergency_toggle')
         def on_emergency_toggle(data):
             """
-            Legacy event from backend - ENGAGE E-STOP.
-
-            We translate toggle to ENGAGE only. Clearing requires explicit
-            'emergency_stop' with engage=false and confirm_clear.
+            Legacy event from backend - always means ENGAGE.
+            Routed through unified handler to prevent duplicates.
             """
-            logger.warning("Received legacy emergency_toggle - sending ENGAGE")
-            self.on_command(MSG_EMERGENCY_STOP, {
-                'engage': True,
-                'reason': 'operator_toggle'
-            })
+            logger.info("Received emergency_toggle event")
+            self._handle_emergency_event(True, 'emergency_toggle')
 
-        # New proper E-STOP event (if backend is updated)
         @self.sio.on('emergency_stop')
         def on_emergency_stop(data):
-            """Proper emergency_stop event with SET semantics."""
-            engage = data.get('engage', True)
-            reason = data.get('reason', 'operator_command')
-
-            if engage:
-                logger.warning(f"E-STOP ENGAGE from backend: {reason}")
-                self.on_command(MSG_EMERGENCY_STOP, {
-                    'engage': True,
-                    'reason': reason
-                })
-            else:
-                # Clear request - must include confirmation
-                confirm = data.get('confirm_clear', '')
-                logger.info("E-STOP CLEAR request from backend")
-                self.on_command(MSG_EMERGENCY_STOP, {
-                    'engage': False,
-                    'confirm_clear': confirm,
-                    'reason': reason
-                })
-
-        # Handle emergency_status broadcast from backend (triggered by TrimUI toggle)
-        @self.sio.on('emergency_status')
-        def on_emergency_status(data):
             """
-            Handle emergency_status event from backend.
+            Proper emergency_stop event with explicit engage/clear.
+            Routed through unified handler to prevent duplicates.
+            """
+            engage = data.get('engage', True)
+            logger.info(f"Received emergency_stop event (engage={engage})")
+            self._handle_emergency_event(engage, 'emergency_stop')
 
-            Backend broadcasts this after receiving emergency_toggle from TrimUI.
-            active=True means E-STOP should be engaged, active=False means clear.
+        @self.sio.on('emergency_status')
+        def on_emergency_status_event(data):
+            """
+            Status broadcast from backend (triggered by TrimUI).
+            Routed through unified handler to prevent duplicates.
             """
             active = data.get('active', True)  # Default to engaged for safety
-            self.on_emergency_status(active)
+            logger.info(f"Received emergency_status event (active={active})")
+            self._handle_emergency_event(active, 'emergency_status')
 
         @self.sio.on('clamp_close')
         def on_clamp_close(data):
@@ -173,6 +169,39 @@ class BackendClient:
         def on_brake_command(data):
             logger.info(f"Brake command: {data}")
             self.on_command('brake_command', data)
+
+    def _handle_emergency_event(self, active: bool, source: str):
+        """
+        Unified handler for all E-stop events.
+
+        Prevents duplicate commands when backend sends multiple event types
+        (e.g., both emergency_toggle AND emergency_status for same action).
+
+        Args:
+            active: True to engage E-stop, False to clear
+            source: Event source for logging ('emergency_toggle', 'emergency_stop', 'emergency_status')
+        """
+        now = time.time()
+
+        # Check if this is a duplicate from another event type arriving near-simultaneously
+        time_since_last = now - self._last_estop_event_time
+        if time_since_last < self._estop_event_window_s:
+            if self._last_estop_event_active == active:
+                logger.debug(f"E-STOP: Ignoring duplicate {source} event "
+                           f"(same as event {time_since_last*1000:.0f}ms ago)")
+                return
+            else:
+                # Different value in very short window - take the more recent one
+                logger.warning(f"E-STOP: Rapid state change in {source}, "
+                             f"was {self._last_estop_event_active}, now {active}")
+
+        # Update tracking
+        self._last_estop_event_time = now
+        self._last_estop_event_active = active
+
+        # Forward to coordinator (which does additional deduplication)
+        logger.info(f"E-STOP: Forwarding {source} event (active={active}) to coordinator")
+        self.on_emergency_status(active, source)
 
     def connect(self):
         """Connect to backend Socket.IO server."""

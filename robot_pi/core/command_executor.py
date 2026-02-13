@@ -15,7 +15,7 @@ import logging
 import json
 import time
 import threading
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 from common.constants import (
     MSG_EMERGENCY_STOP, MSG_PING, ESTOP_REASON_COMMAND,
@@ -73,6 +73,11 @@ class CommandExecutor:
         # Control tracking (for E-STOP clear validation)
         self.last_control_time = time.time()
         self.control_connected = False
+
+        # E-STOP command deduplication (defense-in-depth)
+        self._last_estop_command_time = 0.0
+        self._last_estop_command_engage: Optional[bool] = None
+        self._estop_dedup_window_s = 0.5  # Ignore duplicate commands within 500ms
 
         # Motor timeout safety - stop motors if no input received
         self._last_input_time = time.time()
@@ -229,11 +234,31 @@ class CommandExecutor:
         engage=true (default): Engage E-STOP
         engage=false: Attempt to clear E-STOP (requires validation)
 
+        Includes deduplication to prevent processing duplicate commands
+        that may arrive due to network retries or upstream issues.
+
         Args:
             data: Command data dictionary
         """
         engage = data.get('engage', True)  # Default to ENGAGE for safety
         reason = data.get('reason', 'operator_command')
+
+        # Deduplication: check if this is a duplicate command
+        now = time.time()
+        time_since_last = now - self._last_estop_command_time
+
+        if time_since_last < self._estop_dedup_window_s:
+            if self._last_estop_command_engage == engage:
+                logger.debug(f"E-STOP dedup: ignoring duplicate {'ENGAGE' if engage else 'CLEAR'} "
+                           f"command (age={time_since_last*1000:.0f}ms)")
+                return
+            # Different command within window - this is a rapid toggle, log warning but process it
+            logger.warning(f"E-STOP rapid toggle detected: was {'ENGAGE' if self._last_estop_command_engage else 'CLEAR'}, "
+                         f"now {'ENGAGE' if engage else 'CLEAR'} (age={time_since_last*1000:.0f}ms)")
+
+        # Update deduplication state
+        self._last_estop_command_time = now
+        self._last_estop_command_engage = engage
 
         if engage:
             logger.warning(f"E-STOP ENGAGE command received: {reason}")
@@ -393,13 +418,15 @@ class CommandExecutor:
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
                         self.actuator_controller.set_motor_speed(5, 0)  # Stop
 
-                # Dpad Down button (index 11): Brake engage/release
+                # Dpad Down button (index 11): Brake + Descent (Motor 7 backwards)
                 elif index == 11:
                     if value > 0:
-                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°)")
+                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 7 backwards)")
                         self.actuator_controller.set_servo_position(0.0056)  # 1° engage
+                        self.actuator_controller.set_motor_speed(7, -400)  # 50% backwards (descend)
                     else:
-                        logger.info("Dpad Down: Brake RELEASE (servo to 60°)")
+                        logger.info("Dpad Down: Brake RELEASE (servo to 60°) + Motor 7 STOP")
+                        self.actuator_controller.set_motor_speed(7, 0)  # Stop motor first
                         self.actuator_controller.set_servo_position(0.3333)  # 60° release
 
         except (ValueError, TypeError) as e:
@@ -590,11 +617,11 @@ class CommandExecutor:
 
     def _handle_brake_command(self, data: Dict[str, Any]):
         """
-        Handle brake engage/release command (servo control).
+        Handle brake engage/release command (servo + descent motor control).
 
         Servo position:
-        - engage: 1 degree (position 0.0056)
-        - release: 60 degrees (position 0.3333)
+        - engage: 1 degree (position 0.0056) + Motor 7 backwards (descend)
+        - release: 60 degrees (position 0.3333) + Motor 7 stop
 
         Args:
             data: Command data with action (engage/release)
@@ -607,13 +634,15 @@ class CommandExecutor:
 
         if action == 'engage':
             # 1 degree = 1/180 = 0.0056 position
-            logger.info("Brake ENGAGE: Servo to 1°")
+            logger.info("Brake ENGAGE: Servo to 1° + Descent (Motor 7 backwards)")
             success = self.actuator_controller.set_servo_position(0.0056)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
+            self.actuator_controller.set_motor_speed(7, -400)  # 50% backwards (descend)
         else:  # release
             # 60 degrees = 60/180 = 0.3333 position
-            logger.info("Brake RELEASE: Servo to 60°")
+            logger.info("Brake RELEASE: Motor 7 STOP + Servo to 60°")
+            self.actuator_controller.set_motor_speed(7, 0)  # Stop motor first
             success = self.actuator_controller.set_servo_position(0.3333)
             if not success:
                 logger.warning("Brake RELEASE failed - servo command returned False")

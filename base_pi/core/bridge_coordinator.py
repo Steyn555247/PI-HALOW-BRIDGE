@@ -174,26 +174,39 @@ class HaLowBridge:
         # Forward command to Robot Pi
         self.control_forwarder.send_command(cmd_type, data)
 
-    def _on_emergency_status(self, active: bool):
-        """Handle emergency_status event from backend."""
-        # Check debounce
-        if self.state.should_debounce_emergency_status(active):
+    def _on_emergency_status(self, active: bool, source: str = 'unknown'):
+        """
+        Handle emergency event from backend.
+
+        All emergency events (toggle, stop, status) are routed here after
+        initial deduplication in BackendClient.
+
+        Args:
+            active: True to engage E-stop, False to clear
+            source: Event source for logging
+        """
+        # State-based deduplication: check if we should send this command
+        if not self.state.should_send_emergency_command(active, source):
             return
 
-        # Send E-STOP command
+        # Send E-STOP command to robot
         if active:
-            logger.warning("E-STOP ENGAGE from emergency_status")
-            self.control_forwarder.send_command(MSG_EMERGENCY_STOP, {
+            logger.warning(f"E-STOP ENGAGE: sending to robot (source={source})")
+            success = self.control_forwarder.send_command(MSG_EMERGENCY_STOP, {
                 'engage': True,
                 'reason': 'operator_toggle'
             })
+            if not success:
+                logger.error("E-STOP ENGAGE command failed to send!")
         else:
-            logger.info("E-STOP CLEAR from emergency_status")
-            self.control_forwarder.send_command(MSG_EMERGENCY_STOP, {
+            logger.info(f"E-STOP CLEAR: sending to robot (source={source})")
+            success = self.control_forwarder.send_command(MSG_EMERGENCY_STOP, {
                 'engage': False,
                 'confirm_clear': ESTOP_CLEAR_CONFIRM,
                 'reason': 'operator_toggle'
             })
+            if not success:
+                logger.error("E-STOP CLEAR command failed to send!")
 
     def _send_estop_engage(self, cmd_type: str, data: Dict[str, Any]):
         """Send E-STOP engage command to Robot Pi."""

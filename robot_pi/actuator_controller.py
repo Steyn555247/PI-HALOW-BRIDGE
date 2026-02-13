@@ -417,6 +417,9 @@ class ActuatorController:
         This can be called from ANY thread at ANY time.
         Always succeeds (fail-safe).
 
+        If already engaged, skips redundant motor stop commands to avoid
+        unnecessary I2C traffic. The E-STOP state is still refreshed.
+
         Args:
             reason: Reason code from constants
             detail: Additional detail for logging
@@ -426,6 +429,11 @@ class ActuatorController:
             self._estop_engaged = True
             self._estop_reason = reason
             self._estop_timestamp = time.time()
+
+            # Skip redundant motor stops if already engaged
+            if was_engaged:
+                logger.debug(f"E-STOP already engaged, skipping redundant motor stops (reason={reason})")
+                return
 
             # Stop all motors immediately - track success/failure
             motors_stopped = 0
@@ -461,9 +469,8 @@ class ActuatorController:
             if motors_failed > 0 or (motors_stopped == 0 and len(self.motorons) > 0):
                 logger.critical(f"E-STOP: MOTOR STOP INCOMPLETE - {motors_stopped} stopped, {motors_failed} FAILED! I2C may be failing!")
 
-            if not was_engaged:
-                self._log_estop_event("ENGAGED", reason,
-                    f"{detail} (motors_stopped={motors_stopped}, motors_failed={motors_failed}, servo={'OK' if servo_stopped else 'FAILED'})")
+            self._log_estop_event("ENGAGED", reason,
+                f"{detail} (motors_stopped={motors_stopped}, motors_failed={motors_failed}, servo={'OK' if servo_stopped else 'FAILED'})")
 
     def clear_estop(self, confirm: str, control_age_s: float, control_connected: bool) -> bool:
         """
