@@ -53,28 +53,15 @@ class WatchdogMonitor:
 
     def check_safety(self):
         """
-        Check safety conditions and trigger E-STOP if needed.
+        Check safety conditions - logging only, NO automatic E-STOP.
 
-        SAFETY: Only ENGAGES E-STOP, never clears it.
+        E-STOP is handled ONLY by backend and controller.
+        Auto-engage disabled to prevent unwanted E-STOP activations.
         """
-        now = time.time()
-
-        # Check telemetry timeout - indicates Robot Pi may be unreachable
-        last_telemetry = self.get_last_telemetry_time()
-        if last_telemetry > 0:
-            telemetry_age = now - last_telemetry
-
-            if telemetry_age > WATCHDOG_TIMEOUT_S:
-                if not self.estop_sent_for_timeout:
-                    logger.error(f"Telemetry timeout ({telemetry_age:.1f}s), sending E-STOP ENGAGE")
-                    self.on_estop_engage(MSG_EMERGENCY_STOP, {
-                        'engage': True,
-                        'reason': f'base_watchdog_telemetry_timeout_{telemetry_age:.0f}s'
-                    })
-                    self.estop_sent_for_timeout = True
-            else:
-                # Telemetry is fresh, reset timeout flag
-                self.estop_sent_for_timeout = False
+        # DISABLED: Auto E-STOP on telemetry timeout
+        # E-STOP should only come from controller → backend → robot
+        # This watchdog just monitors, does not engage E-STOP
+        pass
 
     def log_status(
         self,

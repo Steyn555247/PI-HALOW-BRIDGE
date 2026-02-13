@@ -172,35 +172,22 @@ class BackendClient:
 
     def _handle_emergency_event(self, active: bool, source: str):
         """
-        Unified handler for all E-stop events.
+        Simplified E-stop event handler.
 
-        Prevents duplicate commands when backend sends multiple event types
-        (e.g., both emergency_toggle AND emergency_status for same action).
+        Just forwards to coordinator - deduplication happens there.
+        E-STOP logic is owned by backend and controller only.
 
         Args:
             active: True to engage E-stop, False to clear
-            source: Event source for logging ('emergency_toggle', 'emergency_stop', 'emergency_status')
+            source: Event source for logging
         """
-        now = time.time()
+        # Simple dedup: ignore if same as last event
+        if self._last_estop_event_active == active:
+            logger.debug(f"E-STOP: ignoring duplicate {source} (already {'ENGAGE' if active else 'CLEAR'})")
+            return
 
-        # Check if this is a duplicate from another event type arriving near-simultaneously
-        time_since_last = now - self._last_estop_event_time
-        if time_since_last < self._estop_event_window_s:
-            if self._last_estop_event_active == active:
-                logger.debug(f"E-STOP: Ignoring duplicate {source} event "
-                           f"(same as event {time_since_last*1000:.0f}ms ago)")
-                return
-            else:
-                # Different value in very short window - take the more recent one
-                logger.warning(f"E-STOP: Rapid state change in {source}, "
-                             f"was {self._last_estop_event_active}, now {active}")
-
-        # Update tracking
-        self._last_estop_event_time = now
         self._last_estop_event_active = active
-
-        # Forward to coordinator (which does additional deduplication)
-        logger.info(f"E-STOP: Forwarding {source} event (active={active}) to coordinator")
+        logger.info(f"E-STOP: forwarding {source} (active={active}) to robot")
         self.on_emergency_status(active, source)
 
     def connect(self):

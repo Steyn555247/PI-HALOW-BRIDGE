@@ -158,49 +158,26 @@ class StateManager:
         """
         Check if emergency command should be sent to robot.
 
-        Prevents multiple commands for the same logical event by:
-        1. Tracking the last command we actually SENT to the robot
-        2. Time-based debounce to prevent rapid duplicate events
-        3. State-based deduplication (don't re-engage if already engaged)
+        SIMPLIFIED: Only block exact duplicates, never auto-re-engage.
+        E-STOP logic is handled by backend and controller only.
 
         Args:
             active: E-STOP active state (True=engage, False=clear)
-            source: Source of the event for logging (e.g. 'emergency_status', 'emergency_toggle')
+            source: Source of the event for logging
 
         Returns:
             True if command should be sent to robot
         """
-        now = time.time()
-        time_since_last = now - self._last_emergency_status_time
-
-        # State-based deduplication: don't send if we already sent the same command
+        # Simple state-based dedup: don't send if we already sent the same command
         if self._last_emergency_command_sent == active:
-            # Already sent this command - only allow if enough time passed (re-trigger)
-            if time_since_last < self._emergency_debounce_s:
-                logger.debug(f"E-STOP dedup: already sent {'ENGAGE' if active else 'CLEAR'}, "
-                           f"ignoring duplicate from {source} (age={time_since_last:.2f}s)")
-                return False
-            else:
-                # Enough time passed, allow re-send (in case robot missed it)
-                logger.info(f"E-STOP: re-sending {'ENGAGE' if active else 'CLEAR'} from {source} "
-                          f"(last sent {time_since_last:.1f}s ago)")
+            logger.debug(f"E-STOP: ignoring duplicate {'ENGAGE' if active else 'CLEAR'} from {source}")
+            return False
 
-        # Time-based debounce: prevent rapid toggles
-        if time_since_last < self._emergency_debounce_s and self._last_emergency_command_sent is not None:
-            # Different value within debounce window = oscillation
-            if self._last_emergency_command_sent != active:
-                logger.warning(f"E-STOP debounce: ignoring rapid toggle from {source} "
-                             f"(was {'ENGAGE' if self._last_emergency_command_sent else 'CLEAR'}, "
-                             f"now {'ENGAGE' if active else 'CLEAR'}, age={time_since_last:.2f}s)")
-                return False
-
-        # Update state and allow command
-        self._last_emergency_status_time = now
+        # New command - allow it
         self._last_emergency_command_sent = active
         self._emergency_event_id += 1
 
-        logger.info(f"E-STOP command APPROVED: {'ENGAGE' if active else 'CLEAR'} from {source} "
-                   f"(event_id={self._emergency_event_id})")
+        logger.info(f"E-STOP: forwarding {'ENGAGE' if active else 'CLEAR'} from {source}")
         return True
 
     def get_last_emergency_command(self) -> Optional[bool]:

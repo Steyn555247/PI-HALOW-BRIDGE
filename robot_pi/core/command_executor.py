@@ -54,12 +54,9 @@ class CommandExecutor:
         self.height = 0.0
         self.force = 0.0
 
-        # Chainsaw move control (continuous with 200ms safety timeout)
-        self._chainsaw_max_time_s = 0.2   # Maximum continuous time (200ms)
-        self._chainsaw1_safety_timer = None  # Force-stop timer
-        self._chainsaw2_safety_timer = None
-        self._chainsaw1_start_time = 0.0  # When movement started
-        self._chainsaw2_start_time = 0.0
+        # Chainsaw move control - SAFETY TIMEOUT DISABLED
+        self._chainsaw_safety_enabled = False  # Safety timer disabled per user request
+        self._chainsaw_speed_multiplier = 720  # 90% power (720/800)
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
 
@@ -340,23 +337,12 @@ class CommandExecutor:
                     # Apply deadzone - treat small values as zero
                     if abs(self._chainsaw1_axis_value) < DEADZONE:
                         logger.debug("Chainsaw 1 STOP: Stick released (Motor 2)")
-                        # Cancel safety timer and stop motor immediately
-                        if self._chainsaw1_safety_timer:
-                            self._chainsaw1_safety_timer.cancel()
-                            self._chainsaw1_safety_timer = None
-                        self._chainsaw1_start_time = 0.0
                         self.actuator_controller.set_motor_speed(2, 0)
                     else:
-                        # Stick pushed - update motor speed continuously
-                        speed = int(self._chainsaw1_axis_value * 800)
+                        # Stick pushed - update motor speed continuously (90% power)
+                        speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
                         logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
                         self.actuator_controller.set_motor_speed(2, speed)
-
-                        # Start safety timer if not already running
-                        if self._chainsaw1_safety_timer is None:
-                            self._chainsaw1_start_time = time.time()
-                            logger.info(f"Chainsaw 1 START: Motor 2 (200ms safety timeout)")
-                            self._start_chainsaw_safety_timer(1, 2)
 
                 # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
                 elif index == 3:
@@ -365,23 +351,12 @@ class CommandExecutor:
                     # Apply deadzone - treat small values as zero
                     if abs(self._chainsaw2_axis_value) < DEADZONE:
                         logger.debug("Chainsaw 2 STOP: Stick released (Motor 3)")
-                        # Cancel safety timer and stop motor immediately
-                        if self._chainsaw2_safety_timer:
-                            self._chainsaw2_safety_timer.cancel()
-                            self._chainsaw2_safety_timer = None
-                        self._chainsaw2_start_time = 0.0
                         self.actuator_controller.set_motor_speed(3, 0)
                     else:
-                        # Stick pushed - update motor speed continuously
-                        speed = int(self._chainsaw2_axis_value * 800)
+                        # Stick pushed - update motor speed continuously (90% power)
+                        speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
                         logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
                         self.actuator_controller.set_motor_speed(3, speed)
-
-                        # Start safety timer if not already running
-                        if self._chainsaw2_safety_timer is None:
-                            self._chainsaw2_start_time = time.time()
-                            logger.info(f"Chainsaw 2 START: Motor 3 (200ms safety timeout)")
-                            self._start_chainsaw_safety_timer(2, 3)
 
             elif event_type == 'button':
                 # A button (index 0): Motor 0 UP/FORWARD (claw open)
@@ -485,88 +460,34 @@ class CommandExecutor:
         # Map chainsaw_id to motor: 1→Motor 2, 2→Motor 3
         motor_id = 1 + chainsaw_id  # 1→2, 2→3
 
+        # 90% power = 720
+        speed = self._chainsaw_speed_multiplier
+
         if direction == 'up':
-            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward")
-            # Set axis value and start motor
+            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
             if chainsaw_id == 1:
                 self._chainsaw1_axis_value = -1.0
             else:
                 self._chainsaw2_axis_value = -1.0
-            self.actuator_controller.set_motor_speed(motor_id, 400)  # 50% forward
-
-            # Start safety timer
-            if (chainsaw_id == 1 and self._chainsaw1_safety_timer is None) or \
-               (chainsaw_id == 2 and self._chainsaw2_safety_timer is None):
-                if chainsaw_id == 1:
-                    self._chainsaw1_start_time = time.time()
-                else:
-                    self._chainsaw2_start_time = time.time()
-                self._start_chainsaw_safety_timer(chainsaw_id, motor_id)
+            self.actuator_controller.set_motor_speed(motor_id, speed)
 
         elif direction == 'down':
-            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward")
-            # Set axis value and start motor
+            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (90% power)")
             if chainsaw_id == 1:
                 self._chainsaw1_axis_value = 1.0
             else:
                 self._chainsaw2_axis_value = 1.0
-            self.actuator_controller.set_motor_speed(motor_id, -400)  # 50% backward
-
-            # Start safety timer
-            if (chainsaw_id == 1 and self._chainsaw1_safety_timer is None) or \
-               (chainsaw_id == 2 and self._chainsaw2_safety_timer is None):
-                if chainsaw_id == 1:
-                    self._chainsaw1_start_time = time.time()
-                else:
-                    self._chainsaw2_start_time = time.time()
-                self._start_chainsaw_safety_timer(chainsaw_id, motor_id)
+            self.actuator_controller.set_motor_speed(motor_id, -speed)
 
         else:  # stop
             logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
-            # Clear axis value and stop motor
             if chainsaw_id == 1:
                 self._chainsaw1_axis_value = 0.0
-                if self._chainsaw1_safety_timer:
-                    self._chainsaw1_safety_timer.cancel()
-                    self._chainsaw1_safety_timer = None
-                self._chainsaw1_start_time = 0.0
             else:
                 self._chainsaw2_axis_value = 0.0
-                if self._chainsaw2_safety_timer:
-                    self._chainsaw2_safety_timer.cancel()
-                    self._chainsaw2_safety_timer = None
-                self._chainsaw2_start_time = 0.0
             self.actuator_controller.set_motor_speed(motor_id, 0)
 
-    def _start_chainsaw_safety_timer(self, chainsaw_id: int, motor_id: int):
-        """
-        Start 200ms safety timer for chainsaw move.
-
-        This force-stops the motor 200ms after the last command, creating
-        responsive control when stick is released (no explicit stop command).
-        """
-        def force_stop():
-            elapsed = time.time() - (self._chainsaw1_start_time if chainsaw_id == 1 else self._chainsaw2_start_time)
-            logger.warning(f"Chainsaw {chainsaw_id} SAFETY TIMEOUT: Motor {motor_id} force-stopped after {elapsed:.2f}s")
-            self.actuator_controller.set_motor_speed(motor_id, 0)
-
-            # Clear timer reference
-            if chainsaw_id == 1:
-                self._chainsaw1_safety_timer = None
-                self._chainsaw1_start_time = 0.0
-            else:
-                self._chainsaw2_safety_timer = None
-                self._chainsaw2_start_time = 0.0
-
-        # Create and start safety timer
-        timer = threading.Timer(self._chainsaw_max_time_s, force_stop)
-        timer.daemon = True
-        timer.start()
-
-        if chainsaw_id == 1:
-            self._chainsaw1_safety_timer = timer
-        else:
-            self._chainsaw2_safety_timer = timer
+    # Safety timer function removed - chainsaw runs without time limit at 90% power
 
     def _handle_climb_command(self, data: Dict[str, Any]):
         """
