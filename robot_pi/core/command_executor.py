@@ -54,20 +54,11 @@ class CommandExecutor:
         self.height = 0.0
         self.force = 0.0
 
-        # Chainsaw move control
-        self._chainsaw_speed_multiplier = 720  # 90% power (720/800)
+        # Chainsaw control - 90% power (720/800)
+        self._chainsaw_speed_multiplier = 720
+        self._chainsaw_onoff_speed = 720
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
-
-        # Chainsaw up/down duration safety (1.5s max continuous run)
-        self._chainsaw_max_duration_s = 1.5  # Max continuous run time
-        self._chainsaw1_start_time = None    # When chainsaw 1 motor started
-        self._chainsaw2_start_time = None    # When chainsaw 2 motor started
-        self._chainsaw1_timed_out = False    # True if timed out, needs release to reset
-        self._chainsaw2_timed_out = False
-
-        # Chainsaw on/off speed (90% of 800)
-        self._chainsaw_onoff_speed = 720     # 90% power for motors 4 & 5
 
         # Ping/Pong tracking for RTT measurement
         # When we receive a ping, we store it and include pong data in telemetry
@@ -341,90 +332,31 @@ class CommandExecutor:
 
                 # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
                 if index == 1:
-                    old_value = self._chainsaw1_axis_value
-                    new_value = float(value)
-                    self._chainsaw1_axis_value = new_value
+                    self._chainsaw1_axis_value = float(value)
 
-                    # Apply deadzone - treat small values as zero (increased to 0.20 for drift)
-                    if abs(new_value) < 0.20:
-                        # Stick released - stop motor, clear timeout, ready for new activation
+                    # Apply deadzone - treat small values as zero
+                    if abs(self._chainsaw1_axis_value) < DEADZONE:
                         logger.debug("Chainsaw 1 STOP: Stick released (Motor 2)")
                         self.actuator_controller.set_motor_speed(2, 0)
-                        self._chainsaw1_start_time = None
-                        self._chainsaw1_timed_out = False
                     else:
-                        # Detect direction change (sign flip) - reset timeout on direction change
-                        # This allows recovery by changing direction, not just releasing
-                        if old_value * new_value < 0:  # Signs differ = direction changed
-                            logger.debug("Chainsaw 1: Direction changed, resetting timeout")
-                            self._chainsaw1_start_time = None
-                            self._chainsaw1_timed_out = False
-
-                        # Stick pushed outside deadzone
-                        if self._chainsaw1_timed_out:
-                            # Timed out - ignore input until direction change or release
-                            logger.debug("Chainsaw 1 blocked: change direction or release to reset")
-                        else:
-                            # Start timer if not already running
-                            if self._chainsaw1_start_time is None:
-                                self._chainsaw1_start_time = time.time()
-                                logger.debug("Chainsaw 1: Timer started")
-
-                            # Check timeout
-                            elapsed = time.time() - self._chainsaw1_start_time
-                            if elapsed > self._chainsaw_max_duration_s:
-                                # Timeout reached - stop motor, set timed_out flag
-                                logger.info(f"Chainsaw 1 timeout: {elapsed:.2f}s limit reached")
-                                self.actuator_controller.set_motor_speed(2, 0)
-                                self._chainsaw1_timed_out = True
-                            else:
-                                # Always update motor speed when not timed out
-                                speed = int(new_value * self._chainsaw_speed_multiplier)
-                                logger.debug(f"Chainsaw 1: Motor 2 speed={speed} (elapsed={elapsed:.2f}s)")
-                                self.actuator_controller.set_motor_speed(2, speed)
+                        # Stick pushed - update motor speed continuously (90% power)
+                        speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
+                        logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
+                        self.actuator_controller.set_motor_speed(2, speed)
 
                 # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
                 elif index == 3:
-                    old_value = self._chainsaw2_axis_value
-                    new_value = float(value)
-                    self._chainsaw2_axis_value = new_value
+                    self._chainsaw2_axis_value = float(value)
 
-                    # Apply deadzone - treat small values as zero (increased to 0.20 for drift)
-                    if abs(new_value) < 0.20:
-                        # Stick released - stop motor, clear timeout, ready for new activation
+                    # Apply deadzone - treat small values as zero
+                    if abs(self._chainsaw2_axis_value) < DEADZONE:
                         logger.debug("Chainsaw 2 STOP: Stick released (Motor 3)")
                         self.actuator_controller.set_motor_speed(3, 0)
-                        self._chainsaw2_start_time = None
-                        self._chainsaw2_timed_out = False
                     else:
-                        # Detect direction change (sign flip) - reset timeout on direction change
-                        if old_value * new_value < 0:  # Signs differ = direction changed
-                            logger.debug("Chainsaw 2: Direction changed, resetting timeout")
-                            self._chainsaw2_start_time = None
-                            self._chainsaw2_timed_out = False
-
-                        # Stick pushed outside deadzone
-                        if self._chainsaw2_timed_out:
-                            # Timed out - ignore input until direction change or release
-                            logger.debug("Chainsaw 2 blocked: change direction or release to reset")
-                        else:
-                            # Start timer if not already running
-                            if self._chainsaw2_start_time is None:
-                                self._chainsaw2_start_time = time.time()
-                                logger.debug("Chainsaw 2: Timer started")
-
-                            # Check timeout
-                            elapsed = time.time() - self._chainsaw2_start_time
-                            if elapsed > self._chainsaw_max_duration_s:
-                                # Timeout reached - stop motor, set timed_out flag
-                                logger.info(f"Chainsaw 2 timeout: {elapsed:.2f}s limit reached")
-                                self.actuator_controller.set_motor_speed(3, 0)
-                                self._chainsaw2_timed_out = True
-                            else:
-                                # Always update motor speed when not timed out
-                                speed = int(new_value * self._chainsaw_speed_multiplier)
-                                logger.debug(f"Chainsaw 2: Motor 3 speed={speed} (elapsed={elapsed:.2f}s)")
-                                self.actuator_controller.set_motor_speed(3, speed)
+                        # Stick pushed - update motor speed continuously (90% power)
+                        speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
+                        logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
+                        self.actuator_controller.set_motor_speed(3, speed)
 
             elif event_type == 'button':
                 # A button (index 0): Motor 0 UP/FORWARD (claw open)
@@ -531,71 +463,15 @@ class CommandExecutor:
         # 90% power = 720
         speed = self._chainsaw_speed_multiplier
 
-        # Get timeout state for this chainsaw
-        if chainsaw_id == 1:
-            start_time = self._chainsaw1_start_time
-            timed_out = self._chainsaw1_timed_out
-        else:
-            start_time = self._chainsaw2_start_time
-            timed_out = self._chainsaw2_timed_out
-
-        if direction == 'up' or direction == 'down':
-            # Check if timed out - require 'stop' command to reset
-            if timed_out:
-                logger.debug(f"Chainsaw {chainsaw_id} blocked: send 'stop' command to reset")
-                return
-
-            # Check if we need to start timer
-            if start_time is None:
-                # First activation - start timer
-                if chainsaw_id == 1:
-                    self._chainsaw1_start_time = time.time()
-                else:
-                    self._chainsaw2_start_time = time.time()
-            else:
-                # Running - check timeout
-                elapsed = time.time() - start_time
-                if elapsed > self._chainsaw_max_duration_s:
-                    # Timeout reached - stop motor, set timed_out flag
-                    logger.info(f"Chainsaw {chainsaw_id} timeout: 1.5s limit reached")
-                    self.actuator_controller.set_motor_speed(motor_id, 0)
-                    if chainsaw_id == 1:
-                        self._chainsaw1_timed_out = True
-                        self._chainsaw1_axis_value = 0.0
-                    else:
-                        self._chainsaw2_timed_out = True
-                        self._chainsaw2_axis_value = 0.0
-                    return
-
-            # Run motor
-            if direction == 'up':
-                logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
-                if chainsaw_id == 1:
-                    self._chainsaw1_axis_value = -1.0
-                else:
-                    self._chainsaw2_axis_value = -1.0
-                self.actuator_controller.set_motor_speed(motor_id, speed)
-            else:  # down
-                logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (90% power)")
-                if chainsaw_id == 1:
-                    self._chainsaw1_axis_value = 1.0
-                else:
-                    self._chainsaw2_axis_value = 1.0
-                self.actuator_controller.set_motor_speed(motor_id, -speed)
-
+        if direction == 'up':
+            logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
+            self.actuator_controller.set_motor_speed(motor_id, speed)
+        elif direction == 'down':
+            logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (90% power)")
+            self.actuator_controller.set_motor_speed(motor_id, -speed)
         else:  # stop
             logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
-            if chainsaw_id == 1:
-                self._chainsaw1_axis_value = 0.0
-                self._chainsaw1_start_time = None
-                self._chainsaw1_timed_out = False
-            else:
-                self._chainsaw2_axis_value = 0.0
-                self._chainsaw2_start_time = None
-                self._chainsaw2_timed_out = False
             self.actuator_controller.set_motor_speed(motor_id, 0)
-
-    # Safety timer function removed - chainsaw runs without time limit at 90% power
 
     def _handle_climb_command(self, data: Dict[str, Any]):
         """
