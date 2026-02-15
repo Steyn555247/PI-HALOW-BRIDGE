@@ -404,7 +404,7 @@ class CommandExecutor:
                 # Deadzone threshold for analog sticks
                 DEADZONE = 0.15
 
-                # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
+                # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down (direction swapped)
                 # NOTE: This is LEGACY - Flutter app sends button events (indices 16-17) instead
                 # Kept for compatibility with other input sources that may send raw axis values
                 if index == 1:
@@ -423,8 +423,8 @@ class CommandExecutor:
                             if self._chainsaw1_start_time is None:
                                 self._chainsaw1_start_time = time.time()
                                 logger.debug("Chainsaw 1: Timer started via axis")
-                            # Set motor speed (inside lock so timeout can't race)
-                            speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
+                            # Set motor speed (inside lock so timeout can't race) - direction swapped
+                            speed = int(-self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
                             logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
                             self.actuator_controller.set_motor_speed(2, speed)
 
@@ -468,11 +468,11 @@ class CommandExecutor:
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
-                # L2 button (index 6): Chainsaw 1 On/Off (Motor 4) - Push-button
+                # L2 button (index 6): Chainsaw 1 On/Off (Motor 4) - Push-button (direction swapped)
                 elif index == 6:
                     if value > 0:
-                        logger.info("L2 button: Chainsaw 1 ON (Motor 4)")
-                        self.actuator_controller.set_motor_speed(4, self._chainsaw_onoff_speed)  # 90% forward
+                        logger.info("L2 button: Chainsaw 1 ON (Motor 4, direction swapped)")
+                        self.actuator_controller.set_motor_speed(4, -self._chainsaw_onoff_speed)  # 90% backward (swapped)
                     else:
                         logger.info("L2 button: Chainsaw 1 OFF (Motor 4)")
                         self.actuator_controller.set_motor_speed(4, 0)  # Stop
@@ -486,12 +486,12 @@ class CommandExecutor:
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
                         self.actuator_controller.set_motor_speed(5, 0)  # Stop
 
-                # Dpad Down button (index 11): Brake + Descent (Motor 7 backwards)
+                # Dpad Down button (index 11): Brake + Descent (Motor 7 forward - direction swapped)
                 elif index == 11:
                     if value > 0:
-                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 7 backwards)")
+                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 7 forward)")
                         self.actuator_controller.set_servo_position(0.0056)  # 1° engage
-                        self.actuator_controller.set_motor_speed(7, -400)  # 50% backwards (descend)
+                        self.actuator_controller.set_motor_speed(7, 400)  # 50% forward (descend - direction swapped)
                     else:
                         logger.info("Dpad Down: Brake RELEASE (servo to 60°) + Motor 7 STOP")
                         self.actuator_controller.set_motor_speed(7, 0)  # Stop motor first
@@ -522,9 +522,14 @@ class CommandExecutor:
         motor_id = 3 + chainsaw_id  # 1→4, 2→5
 
         # Support both 'on'/'off' and 'press'/'release' for compatibility
+        # Note: Chainsaw 1 (Motor 4) has direction swapped
         if action in ('on', 'press'):
-            logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (forward)")
-            self.actuator_controller.set_motor_speed(motor_id, self._chainsaw_onoff_speed)  # 90% forward
+            if chainsaw_id == 1:
+                logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (backward, direction swapped)")
+                self.actuator_controller.set_motor_speed(motor_id, -self._chainsaw_onoff_speed)  # 90% backward (swapped)
+            else:
+                logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (forward)")
+                self.actuator_controller.set_motor_speed(motor_id, self._chainsaw_onoff_speed)  # 90% forward
         else:  # 'off' or 'release'
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF")
             self.actuator_controller.set_motor_speed(motor_id, 0)
@@ -571,12 +576,21 @@ class CommandExecutor:
                         logger.info(f"Chainsaw {chainsaw_id} timer started (1.5s timeout)")
 
                 # Set motor speed (inside lock so timeout can't race)
+                # Note: Chainsaw 1 (Motor 2) has direction swapped
                 if direction == 'up':
-                    logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
-                    self.actuator_controller.set_motor_speed(motor_id, speed)
+                    if chainsaw_id == 1:
+                        logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} backward (90% power, direction swapped)")
+                        self.actuator_controller.set_motor_speed(motor_id, -speed)
+                    else:
+                        logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
+                        self.actuator_controller.set_motor_speed(motor_id, speed)
                 else:  # down
-                    logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (90% power)")
-                    self.actuator_controller.set_motor_speed(motor_id, -speed)
+                    if chainsaw_id == 1:
+                        logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} forward (90% power, direction swapped)")
+                        self.actuator_controller.set_motor_speed(motor_id, speed)
+                    else:
+                        logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (90% power)")
+                        self.actuator_controller.set_motor_speed(motor_id, -speed)
 
         else:  # stop
             logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
@@ -604,8 +618,8 @@ class CommandExecutor:
         direction = data.get('direction', 'stop')
 
         if direction == 'up':
-            logger.info("Hoist UP: Motor 7 forward")
-            self.actuator_controller.set_motor_speed(7, 400)  # 50% forward
+            logger.info("Hoist UP: Motor 7 backward")
+            self.actuator_controller.set_motor_speed(7, -400)  # 50% backward (direction swapped)
         else:  # stop
             logger.info("Hoist STOP: Motor 7")
             self.actuator_controller.set_motor_speed(7, 0)
@@ -654,11 +668,11 @@ class CommandExecutor:
 
         if action == 'engage':
             # 1 degree = 1/180 = 0.0056 position
-            logger.info("Brake ENGAGE: Servo to 1° + Descent (Motor 7 backwards)")
+            logger.info("Brake ENGAGE: Servo to 1° + Descent (Motor 7 forward)")
             success = self.actuator_controller.set_servo_position(0.0056)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
-            self.actuator_controller.set_motor_speed(7, -400)  # 50% backwards (descend)
+            self.actuator_controller.set_motor_speed(7, 400)  # 50% forward (descend - direction swapped)
         else:  # release
             # 60 degrees = 60/180 = 0.3333 position
             logger.info("Brake RELEASE: Motor 7 STOP + Servo to 60°")
