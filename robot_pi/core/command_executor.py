@@ -404,7 +404,7 @@ class CommandExecutor:
                 # Deadzone threshold for analog sticks
                 DEADZONE = 0.15
 
-                # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down (direction swapped)
+                # Left Stick Y-axis (Axis 1): Chainsaw 1 up/down
                 # NOTE: This is LEGACY - Flutter app sends button events (indices 16-17) instead
                 # Kept for compatibility with other input sources that may send raw axis values
                 if index == 1:
@@ -423,12 +423,12 @@ class CommandExecutor:
                             if self._chainsaw1_start_time is None:
                                 self._chainsaw1_start_time = time.time()
                                 logger.debug("Chainsaw 1: Timer started via axis")
-                            # Set motor speed (inside lock so timeout can't race) - direction swapped
-                            speed = int(-self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
+                            # Set motor speed (inside lock so timeout can't race)
+                            speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
                             logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
                             self.actuator_controller.set_motor_speed(2, speed)
 
-                # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down
+                # Right Stick Y-axis (Axis 3): Chainsaw 2 up/down (direction swapped)
                 # NOTE: This is LEGACY - Flutter app sends button events (indices 20-21) instead
                 elif index == 3:
                     self._chainsaw2_axis_value = float(value)
@@ -446,8 +446,8 @@ class CommandExecutor:
                             if self._chainsaw2_start_time is None:
                                 self._chainsaw2_start_time = time.time()
                                 logger.debug("Chainsaw 2: Timer started via axis")
-                            # Set motor speed (inside lock so timeout can't race)
-                            speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
+                            # Set motor speed (inside lock so timeout can't race) - direction swapped
+                            speed = int(-self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
                             logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
                             self.actuator_controller.set_motor_speed(3, speed)
 
@@ -576,16 +576,16 @@ class CommandExecutor:
                         logger.info(f"Chainsaw {chainsaw_id} timer started (1.5s timeout)")
 
                 # Set motor speed (inside lock so timeout can't race)
-                # Note: Chainsaw 1 (Motor 2) has direction swapped
+                # Note: Chainsaw 2 (Motor 3) has direction swapped
                 if direction == 'up':
-                    if chainsaw_id == 1:
+                    if chainsaw_id == 2:
                         logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} backward (90% power, direction swapped)")
                         self.actuator_controller.set_motor_speed(motor_id, -speed)
                     else:
                         logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
                         self.actuator_controller.set_motor_speed(motor_id, speed)
                 else:  # down
-                    if chainsaw_id == 1:
+                    if chainsaw_id == 2:
                         logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} forward (90% power, direction swapped)")
                         self.actuator_controller.set_motor_speed(motor_id, speed)
                     else:
