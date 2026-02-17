@@ -95,7 +95,7 @@ ACTIVE_MOTORS = 8  # All 8 motors used (0-7)
 USE_PCA9685 = os.getenv('USE_PCA9685', 'true').lower() == 'true'
 PCA9685_ADDRESS = int(os.getenv('PCA9685_ADDRESS', '0x40'), 16)
 PCA9685_CHANNELS = int(os.getenv('PCA9685_CHANNELS', '16'))
-SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '0'))  # Which channel (0-15) the servo is on
+SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '15'))  # Which channel (0-15) the servo is on
 
 # Multiplexer configuration for PCA9685 (if behind TCA9548A multiplexer)
 USE_MULTIPLEXER_FOR_SERVO = os.getenv('USE_MULTIPLEXER_FOR_SERVO', 'true').lower() == 'true'
