@@ -4,6 +4,103 @@
 
 ---
 
+# ⚠️ SAFETY INFORMATION - READ FIRST
+
+## Critical Safety Rules
+
+### 🚨 Emergency Stop Systems
+
+The Serpent robot has **multiple emergency stop methods**:
+
+1. **TrimUI Controller Y Button**
+   - Press Y once to immediately engage E-STOP
+   - Stops all motors and chainsaws instantly
+   - Always accessible during operation
+
+2. **Physical E-STOP Button on Robot**
+   - Located on the robot chassis
+   - Can be pressed at any time, even if wireless connection is lost
+   - Immediately cuts power to all actuators
+   - **This is your primary emergency backup**
+
+3. **Hub Battery Disconnection**
+   - As a last resort, disconnect the battery from the hub
+   - This will break the wireless link and trigger automatic E-STOP on the robot
+   - Only use if all other methods fail
+
+### 🚷 Operator Positioning - CRITICAL
+
+**NEVER stand or position yourself directly below the robot during operation.**
+
+Hazards if positioned below:
+- Falling debris or equipment
+- Robot malfunction or power loss causing drop
+- Chainsaw debris or sawdust
+- Accidental release of payload
+- Equipment falling during maintenance
+
+**Safe positioning:**
+- Stand to the side of the robot's path
+- Maintain at least 3 meters (10 feet) lateral distance
+- Keep clear line of sight to the robot
+- Position yourself with an escape route
+
+### 🔍 Pre-Operation Safety Checklist
+
+Before **every** operation, verify:
+
+- [ ] **Rope/anchor inspection** - Check for wear, fraying, or damage
+- [ ] **Robot physical inspection** - No loose parts, damaged components, or leaks
+- [ ] **Battery voltage** - Minimum 11.5V for operation (check telemetry panel)
+- [ ] **Physical E-STOP test** - Press and verify it stops motors
+- [ ] **Clear operation area** - No personnel below or in drop zone
+- [ ] **Weather conditions** - No rain, high winds, or lightning
+- [ ] **Communication check** - Verify video feed and telemetry updating
+- [ ] **Load limits** - Do not exceed rated payload capacity
+
+### ⚡ Operational Hazards
+
+**Be aware of these hazards during operation:**
+
+| Hazard | Risk | Mitigation |
+|--------|------|------------|
+| **Chainsaw operation** | Cutting, debris, kickback | Keep clear, wear eye protection, never reach near chainsaws |
+| **High voltage** | Electric shock | Never open robot or hub enclosures while powered |
+| **Moving parts** | Pinch points, entanglement | Keep hands clear of motors, pulleys, and actuators |
+| **Falling objects** | Impact injury | Never stand below, secure loose items |
+| **Battery failure** | Fire, chemical leak | Use only specified batteries, inspect before use |
+| **Communication loss** | Uncontrolled robot | E-STOP auto-engages, but verify before approaching |
+| **Rope failure** | Robot fall | Inspect rope before operation, use rated rope |
+
+### 🌤️ Environmental Limitations
+
+**Do NOT operate in these conditions:**
+
+- Rain or wet conditions (water damage to electronics)
+- Wind speeds above 25 mph (loss of control)
+- Temperatures below -10°C or above 45°C
+- Lightning or thunderstorm conditions
+- Low visibility (fog, darkness without adequate lighting)
+- Near power lines or electromagnetic interference sources
+
+### 🔧 Maintenance Safety
+
+- Always disconnect power before maintenance
+- Engage physical E-STOP during work
+- Use lockout/tagout procedures for team operations
+- Never bypass safety interlocks
+- Keep spare batteries stored safely (away from metal objects)
+
+### 👥 Personnel Requirements
+
+- Minimum 2 people for field operations (operator + spotter)
+- All personnel must read this safety section
+- Maintain radio/phone communication with team
+- Know location of first aid kit and fire extinguisher
+- Have emergency contact numbers readily available
+
+---
+
 # Getting Started
 
 ## What You Need
@@ -142,8 +239,8 @@ Shows real-time robot status:
               │       Prev Camera    Next Camera        │
               │                                         │
               │  [L2]                          [R2]     │
-              │  Clamp                         Clamp    │
-              │  Close                         Open     │
+              │  Chainsaw 1                 Chainsaw 2  │
+              │  On                            On       │
               │                                         │
               │      ┌───┐                   [Y]        │
               │  ┌───┤ ↑ ├───┐           EMERGENCY     │
@@ -152,13 +249,14 @@ Shows real-time robot status:
               │      └───┘             [X]     [B]     │
               │     D-Pad                              │
               │   (Movement)            [A]            │
-              │                                         │
+              │                                      Claw │
               │    ○               ○                    │
               │   Left            Right                 │
               │   Stick           Stick                 │
+              │  (Chainsaw 1)   (Chainsaw 2)            │
               │                                         │
               │         [SELECT]    [START]             │
-              │            └───── Menu ─────┘           │
+              │         Sensors       Menu              │
               └─────────────────────────────────────────┘
 ```
 
@@ -187,18 +285,18 @@ When E-STOP is active:
 
 The robot has 3 cameras. Use L1/R1 to cycle through them.
 
-### Clamp/Claw Controls
+### Chainsaw Controls
 
 | Button | Function |
 |--------|----------|
-| **L2** | Close the clamp |
-| **R2** | Open the clamp |
+| **L2** | Chainsaw 1 On (hold to run) |
+| **R2** | Chainsaw 2 On (hold to run) |
 
 ### Menu
 
 | Button | Function |
 |--------|----------|
-| **SELECT** | Open system menu |
+| **SELECT** | Open sensor dashboard |
 | **START** | Open system menu |
 
 ### D-Pad (Movement)
@@ -214,10 +312,19 @@ The robot has 3 cameras. Use L1/R1 to cycle through them.
 
 | Button | Function |
 |--------|----------|
-| **A** | Chainsaw on (if configured) |
-| **B** | Right chainsaw select |
-| **X** | Left chainsaw select |
+| **A** | Claw open |
+| **B** | (Unmapped) |
+| **X** | (Unmapped) |
 | **Y** | **EMERGENCY STOP** |
+
+### Analog Sticks
+
+| Control | Function |
+|---------|----------|
+| **Left Stick Up** | Chainsaw 1 actuate up |
+| **Left Stick Down** | Chainsaw 1 actuate down |
+| **Right Stick Up** | Chainsaw 2 actuate up |
+| **Right Stick Down** | Chainsaw 2 actuate down |
 
 ---
 
@@ -290,7 +397,7 @@ When you first connect, the robot's E-STOP is engaged (all motors stopped). To e
 
 ### Descending
 1. Press and hold **D-Pad Down**
-2. Robot descends
+2. Robot descends down the rope
 3. Release to stop
 
 ### Traversing Left/Right
@@ -298,9 +405,14 @@ When you first connect, the robot's E-STOP is engaged (all motors stopped). To e
 2. Robot moves sideways
 3. Release to stop
 
-### Operating the Clamp
-- **R2** to open the clamp
-- **L2** to close the clamp
+### Operating the Claw
+- **A button** to open the claw
+
+### Operating the Chainsaws
+- **L2** to turn on Chainsaw 1 (hold to run)
+- **R2** to turn on Chainsaw 2 (hold to run)
+- **Left Stick Up/Down** to actuate Chainsaw 1 position
+- **Right Stick Up/Down** to actuate Chainsaw 2 position
 
 ### Switching Camera View
 - **R1** for next camera
@@ -308,12 +420,30 @@ When you first connect, the robot's E-STOP is engaged (all motors stopped). To e
 
 ## Emergency Stop
 
-**Press Y immediately if anything goes wrong!**
+**Multiple ways to stop the robot in an emergency:**
 
-The E-STOP:
-- Stops all motors instantly
-- Cannot be accidentally released (requires 5-second hold)
-- Is also triggered automatically if connection is lost
+### 1. Controller Y Button (Primary)
+**Press Y immediately if anything goes wrong!**
+- Stops all motors and chainsaws instantly
+- Cannot be accidentally released (requires 5-second hold to clear)
+- Works as long as wireless connection is active
+
+### 2. Physical E-STOP Button (Backup)
+**Red button on the robot chassis**
+- Works even if wireless connection is lost
+- Immediately cuts power to all actuators
+- Must be manually reset on the robot before operation can resume
+- **Test this button before every operation**
+
+### 3. Hub Battery Disconnect (Last Resort)
+- Disconnect battery from hub base station
+- Breaks wireless link, triggering automatic E-STOP on robot
+- Only use if controller and physical E-STOP are inaccessible
+
+### Automatic E-STOP Triggers:
+- Connection lost to controller
+- No commands received for 5 seconds
+- System startup (default state)
 
 ---
 
@@ -433,10 +563,15 @@ This usually means network bandwidth issues:
 | Button | Action |
 |--------|--------|
 | **Y** | E-STOP (press once to stop, hold 5s to clear) |
-| **D-Pad** | Movement (up/down/left/right) |
+| **D-Pad Up** | Climb up |
+| **D-Pad Down** | Descend down |
+| **D-Pad Left/Right** | Traverse left/right |
 | **L1/R1** | Switch cameras |
-| **L2/R2** | Close/Open clamp |
-| **SELECT** | Open menu |
+| **L2/R2** | Chainsaw 1/2 On (hold to run) |
+| **A** | Claw open |
+| **SELECT** | Open sensor dashboard |
+| **START** | Open menu |
+| **Left/Right Sticks** | Chainsaw 1/2 actuation |
 
 ## If Something Goes Wrong
 1. **Press Y immediately** - activates E-STOP
@@ -501,11 +636,24 @@ The dashboard has two buttons:
 
 # Safety Summary
 
-1. **E-STOP is your friend** - Press Y immediately if anything seems wrong
-2. **Connection loss = automatic stop** - Robot won't run away if you disconnect
-3. **5-second rule** - Must hold Y for 5 seconds to clear E-STOP (prevents accidents)
-4. **Startup = stopped** - Robot always starts with E-STOP engaged
-5. **No internet is normal** - The SerpentBase network is isolated for safety
+**⚠️ Read the full Safety Information section at the beginning of this guide before operating.**
+
+## Emergency Stop Methods (In Order of Preference):
+1. **Y Button on Controller** - Press immediately for any emergency
+2. **Physical E-STOP on Robot** - Red button on robot chassis
+3. **Hub Battery Disconnect** - Last resort emergency measure
+
+## Critical Safety Rules:
+1. **NEVER stand below the robot** - Stay to the side, minimum 3m distance
+2. **E-STOP is your primary safety tool** - Press Y immediately if anything seems wrong
+3. **Two-person operation required** - Never operate alone in the field
+4. **Pre-operation checklist mandatory** - Check rope, battery, weather, clear area
+5. **Connection loss = automatic stop** - Robot won't run away if you disconnect
+6. **5-second rule** - Must hold Y for 5 seconds to clear E-STOP (prevents accidents)
+7. **Startup = stopped** - Robot always starts with E-STOP engaged
+8. **Weather limits** - No rain, high winds, or lightning
+9. **Physical E-STOP test** - Test before every operation
+10. **No internet is normal** - The SerpentBase network is isolated for safety
 
 ---
 
