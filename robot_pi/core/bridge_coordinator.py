@@ -85,28 +85,17 @@ class HaLowBridge:
             servo_max_duty=config.SERVO_MAX_DUTY
         )
 
-        # Configure current sensors
-        # DISABLED: Current sensors not implemented yet - causing system overload
-        # current_sensors_config = {
-        #     'battery': {
-        #         'addr': config.CURRENT_SENSOR_BATTERY_ADDR,
-        #         'channel': config.CURRENT_SENSOR_BATTERY_CHANNEL,
-        #         'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
-        #         'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
-        #     },
-        #     'system': {
-        #         'addr': config.CURRENT_SENSOR_SYSTEM_ADDR,
-        #         'channel': config.CURRENT_SENSOR_SYSTEM_CHANNEL,
-        #         'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
-        #         'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
-        #     },
-        #     'servo': {
-        #         'addr': config.CURRENT_SENSOR_SERVO_ADDR,
-        #         'channel': config.CURRENT_SENSOR_SERVO_CHANNEL,
-        #         'shunt_ohms': config.CURRENT_SENSOR_SHUNT_OHMS,
-        #         'max_amps': config.CURRENT_SENSOR_MAX_EXPECTED_AMPS
-        #     }
-        # }
+        # Configure chainsaw current sensors for autonomous cutting
+        current_sensors_config = {
+            'cs1': {
+                'addr':    config.CURRENT_SENSOR_CS1_ADDR,
+                'channel': config.CURRENT_SENSOR_CS1_CHANNEL,
+            },
+            'cs2': {
+                'addr':    config.CURRENT_SENSOR_CS2_ADDR,
+                'channel': config.CURRENT_SENSOR_CS2_CHANNEL,
+            },
+        }
 
         self.sensor_reader = SensorReader(
             i2c_bus=config.I2C_BUS,
@@ -117,7 +106,7 @@ class HaLowBridge:
             mux_addr=config.I2C_MUX_ADDRESS,
             imu_channel=config.IMU_MUX_CHANNEL,
             baro_channel=config.BAROMETER_MUX_CHANNEL,
-            current_sensors=None  # Disabled - not implemented yet
+            current_sensors=current_sensors_config
         )
 
         self.video_capture = None
@@ -136,7 +125,8 @@ class HaLowBridge:
         self.command_executor = CommandExecutor(
             actuator_controller=self.actuator_controller,
             framer=self.framer,
-            video_capture=self.video_capture
+            video_capture=self.video_capture,
+            sensor_reader=self.sensor_reader
         )
 
         self.control_server = ControlServer(

@@ -21,6 +21,8 @@ from common.constants import (
     MSG_EMERGENCY_STOP, MSG_PING, ESTOP_REASON_COMMAND,
     ESTOP_CLEAR_CONFIRM
 )
+from robot_pi import config
+from robot_pi.core.autonomous_cutter import AutonomousCutter
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,8 @@ class CommandExecutor:
         self,
         actuator_controller,
         framer,
-        video_capture=None
+        video_capture=None,
+        sensor_reader=None
     ):
         """
         Initialize command executor.
@@ -45,10 +48,12 @@ class CommandExecutor:
             actuator_controller: ActuatorController instance for motor/servo control
             framer: SecureFramer instance for PSK validation
             video_capture: Optional VideoCapture instance for camera switching
+            sensor_reader: Optional SensorReader instance for autonomous cutting
         """
         self.actuator_controller = actuator_controller
         self.framer = framer
         self.video_capture = video_capture
+        self.sensor_reader = sensor_reader
 
         # State
         self.height = 0.0
@@ -68,6 +73,19 @@ class CommandExecutor:
         self._chainsaw_lock = threading.Lock()
         self._chainsaw_timeout_thread = None
         self._chainsaw_timeout_running = False
+
+        # Double-press detection for L2/R2 autonomous cutting
+        self._l2_last_press_time = 0.0
+        self._r2_last_press_time = 0.0
+
+        # Autonomous cutter instances (one per chainsaw)
+        self._autocut_cs1: Optional[AutonomousCutter] = None
+        self._autocut_cs2: Optional[AutonomousCutter] = None
+        self._autocut_lock = threading.Lock()
+
+        # Bypass flags: when True, chainsaw timeout loop skips Motor 2/3 respectively
+        self._autocut1_active = False
+        self._autocut2_active = False
 
         # Ping/Pong tracking for RTT measurement
         # When we receive a ping, we store it and include pong data in telemetry
@@ -202,16 +220,16 @@ class CommandExecutor:
                         logger.info(f"Chainsaw timeout monitor: CS1={cs1_status}, CS2={cs2_status}")
 
                 with self._chainsaw_lock:
-                    # Check chainsaw 1 (Motor 2)
-                    if self._chainsaw1_start_time is not None:
+                    # Check chainsaw 1 (Motor 2) — skip if autocut is managing it
+                    if self._chainsaw1_start_time is not None and not self._autocut1_active:
                         elapsed = now - self._chainsaw1_start_time
                         if elapsed > self._chainsaw_timeout_s:
                             logger.info(f"CHAINSAW 1 TIMEOUT: {elapsed:.1f}s - stopping Motor 2 (ready for reuse)")
                             self.actuator_controller.set_motor_speed(2, 0)
                             self._chainsaw1_start_time = None  # Reset timer, ready for immediate reuse
 
-                    # Check chainsaw 2 (Motor 3)
-                    if self._chainsaw2_start_time is not None:
+                    # Check chainsaw 2 (Motor 3) — skip if autocut is managing it
+                    if self._chainsaw2_start_time is not None and not self._autocut2_active:
                         elapsed = now - self._chainsaw2_start_time
                         if elapsed > self._chainsaw_timeout_s:
                             logger.info(f"CHAINSAW 2 TIMEOUT: {elapsed:.1f}s - stopping Motor 3 (ready for reuse)")
@@ -468,23 +486,67 @@ class CommandExecutor:
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
-                # L2 button (index 6): Chainsaw 1 On/Off (Motor 4) - Push-button (direction swapped)
+                # L2 button (index 6): Chainsaw 1 On/Off (Motor 4) - direction swapped
+                # Double-press within AUTOCUT_DOUBLE_PRESS_WINDOW_S → autonomous cutting
+                # Single press/hold → normal hold-to-run
                 elif index == 6:
-                    if value > 0:
-                        logger.info("L2 button: Chainsaw 1 ON (Motor 4, direction swapped)")
-                        self.actuator_controller.set_motor_speed(4, -self._chainsaw_onoff_speed)  # 90% backward (swapped)
-                    else:
-                        logger.info("L2 button: Chainsaw 1 OFF (Motor 4)")
-                        self.actuator_controller.set_motor_speed(4, 0)  # Stop
+                    # Clean up completed autocut if present
+                    with self._autocut_lock:
+                        if self._autocut_cs1 is not None and not self._autocut_cs1.is_running():
+                            self._autocut_cs1 = None
+                            self._autocut1_active = False
+                        autocut_active = self._autocut1_active
 
-                # R2 button (index 7): Chainsaw 2 On/Off (Motor 5) - Push-button
-                elif index == 7:
-                    if value > 0:
-                        logger.info("R2 button: Chainsaw 2 ON (Motor 5)")
-                        self.actuator_controller.set_motor_speed(5, self._chainsaw_onoff_speed)  # 90% forward
+                    if autocut_active:
+                        # Autocut owns Motor 4 — suppress all L2 events
+                        pass
+                    elif value > 0:
+                        now = time.time()
+                        if now - self._l2_last_press_time < config.AUTOCUT_DOUBLE_PRESS_WINDOW_S:
+                            # Double-press detected — start autonomous cutting
+                            logger.info("L2 double-press: starting autonomous cut CS1")
+                            self._start_autocut(1)
+                            self._l2_last_press_time = 0.0  # Reset so next press is fresh
+                        else:
+                            # First (or new) press — normal hold-to-run
+                            self._l2_last_press_time = now
+                            logger.info("L2 button: Chainsaw 1 ON (Motor 4, direction swapped)")
+                            self.actuator_controller.set_motor_speed(4, -self._chainsaw_onoff_speed)
                     else:
+                        # Release — normal stop
+                        logger.info("L2 button: Chainsaw 1 OFF (Motor 4)")
+                        self.actuator_controller.set_motor_speed(4, 0)
+
+                # R2 button (index 7): Chainsaw 2 On/Off (Motor 5)
+                # Double-press within AUTOCUT_DOUBLE_PRESS_WINDOW_S → autonomous cutting
+                # Single press/hold → normal hold-to-run
+                elif index == 7:
+                    # Clean up completed autocut if present
+                    with self._autocut_lock:
+                        if self._autocut_cs2 is not None and not self._autocut_cs2.is_running():
+                            self._autocut_cs2 = None
+                            self._autocut2_active = False
+                        autocut_active = self._autocut2_active
+
+                    if autocut_active:
+                        # Autocut owns Motor 5 — suppress all R2 events
+                        pass
+                    elif value > 0:
+                        now = time.time()
+                        if now - self._r2_last_press_time < config.AUTOCUT_DOUBLE_PRESS_WINDOW_S:
+                            # Double-press detected — start autonomous cutting
+                            logger.info("R2 double-press: starting autonomous cut CS2")
+                            self._start_autocut(2)
+                            self._r2_last_press_time = 0.0
+                        else:
+                            # First (or new) press — normal hold-to-run
+                            self._r2_last_press_time = now
+                            logger.info("R2 button: Chainsaw 2 ON (Motor 5)")
+                            self.actuator_controller.set_motor_speed(5, self._chainsaw_onoff_speed)
+                    else:
+                        # Release — normal stop
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
-                        self.actuator_controller.set_motor_speed(5, 0)  # Stop
+                        self.actuator_controller.set_motor_speed(5, 0)
 
                 # Dpad Down button (index 11): Brake + Descent (Motor 7 forward - direction swapped)
                 elif index == 11:
@@ -680,6 +742,110 @@ class CommandExecutor:
             success = self.actuator_controller.set_servo_position(0.3333)
             if not success:
                 logger.warning("Brake RELEASE failed - servo command returned False")
+
+    # ------------------------------------------------------------------
+    # Autonomous cutting management
+    # ------------------------------------------------------------------
+
+    def _start_autocut(self, chainsaw_id: int):
+        """
+        Create and start an AutonomousCutter for the given chainsaw.
+
+        Stops any existing autocut for that chainsaw first.
+        Sets the bypass flag so the chainsaw timeout loop does not
+        interfere with Motor 2/3 while autocut is running.
+
+        Args:
+            chainsaw_id: 1 or 2
+        """
+        if self.sensor_reader is None:
+            logger.warning(
+                f"Cannot start autocut CS{chainsaw_id}: no sensor_reader available"
+            )
+            return
+
+        with self._autocut_lock:
+            # Stop any existing autocut for this chainsaw
+            if chainsaw_id == 1 and self._autocut_cs1 is not None:
+                self._autocut_cs1.stop()
+                self._autocut_cs1 = None
+            elif chainsaw_id == 2 and self._autocut_cs2 is not None:
+                self._autocut_cs2.stop()
+                self._autocut_cs2 = None
+
+            cutter = AutonomousCutter(
+                chainsaw_id=chainsaw_id,
+                actuator_controller=self.actuator_controller,
+                sensor_reader=self.sensor_reader,
+                high_current=config.AUTOCUT_HIGH_CURRENT_A,
+                safe_current=config.AUTOCUT_SAFE_CURRENT_A,
+                idle_current=config.AUTOCUT_IDLE_CURRENT_A,
+                advance_speed=config.AUTOCUT_ADVANCE_SPEED,
+                backoff_speed=config.AUTOCUT_BACKOFF_SPEED,
+                breakthrough_confirm_s=config.AUTOCUT_BREAKTHROUGH_CONFIRM_S,
+                loop_interval_s=config.AUTOCUT_LOOP_INTERVAL_S,
+                onoff_speed=self._chainsaw_onoff_speed,
+                on_complete=self._on_autocut_complete,
+            )
+
+            if chainsaw_id == 1:
+                self._autocut_cs1 = cutter
+                self._autocut1_active = True
+                # Clear feed-motor start time so timeout loop ignores Motor 2
+                with self._chainsaw_lock:
+                    self._chainsaw1_start_time = None
+            else:
+                self._autocut_cs2 = cutter
+                self._autocut2_active = True
+                with self._chainsaw_lock:
+                    self._chainsaw2_start_time = None
+
+            cutter.start()
+            logger.info(f"Autocut CS{chainsaw_id} started (autonomous mode)")
+
+    def _stop_autocut(self, chainsaw_id: int):
+        """
+        Stop the autonomous cutter for the given chainsaw and clear state.
+
+        Args:
+            chainsaw_id: 1 or 2
+        """
+        with self._autocut_lock:
+            if chainsaw_id == 1:
+                if self._autocut_cs1 is not None:
+                    self._autocut_cs1.stop()
+                    self._autocut_cs1 = None
+                self._autocut1_active = False
+                with self._chainsaw_lock:
+                    self._chainsaw1_start_time = None
+            else:
+                if self._autocut_cs2 is not None:
+                    self._autocut_cs2.stop()
+                    self._autocut_cs2 = None
+                self._autocut2_active = False
+                with self._chainsaw_lock:
+                    self._chainsaw2_start_time = None
+        logger.info(f"Autocut CS{chainsaw_id} stopped")
+
+    def _on_autocut_complete(self, chainsaw_id: int):
+        """
+        Callback fired by AutonomousCutter when breakthrough is confirmed.
+
+        Clears autocut state so normal L2/R2 operation resumes.
+
+        Args:
+            chainsaw_id: 1 or 2
+        """
+        with self._autocut_lock:
+            if chainsaw_id == 1:
+                self._autocut_cs1 = None
+                self._autocut1_active = False
+            else:
+                self._autocut_cs2 = None
+                self._autocut2_active = False
+        logger.info(
+            f"Autocut CS{chainsaw_id} complete — branch cut, returning to manual mode"
+        )
 
     def get_pong_data(self) -> Optional[Dict[str, Any]]:
         """
