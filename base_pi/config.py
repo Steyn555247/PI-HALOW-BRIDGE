@@ -64,7 +64,7 @@ TELEMETRY_BUFFER_SIZE = int(os.getenv('TELEMETRY_BUFFER_SIZE', '600'))
 # Storage Configuration (SSD)
 # Note: Video recording moved to separate project: ~/serpent-video-recorder
 STORAGE_ENABLED = os.getenv('STORAGE_ENABLED', 'true').lower() == 'true'  # Enabled by default
-STORAGE_BASE_PATH = os.getenv('STORAGE_BASE_PATH', '/media/serpentbase/SSK SSD/serpent_recordings')
+STORAGE_BASE_PATH = os.getenv('STORAGE_BASE_PATH', '/media/serpentbase/SSK_SSD/serpent_recordings')
 TELEMETRY_RETENTION_DAYS = int(os.getenv('TELEMETRY_RETENTION_DAYS', '3650'))  # ~10 years (no auto-delete)
 COMMAND_RETENTION_DAYS = int(os.getenv('COMMAND_RETENTION_DAYS', '3650'))  # ~10 years (no auto-delete)
 

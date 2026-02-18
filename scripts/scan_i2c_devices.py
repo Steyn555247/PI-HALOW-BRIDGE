@@ -9,11 +9,9 @@ Usage:
     python3 scripts/scan_i2c_devices.py
 
 Expected devices:
-    Channel 0: 0x4A (BNO085 IMU)
-    Channel 1: 0x77 (BMP388 Barometer)
-    Channel 2: 0x40 (INA219 Battery Current Sensor)
-    Channel 3: 0x41 (INA219 System Current Sensor)
-    Channel 4: 0x44 (INA219 Servo Current Sensor)
+    Channel 0: 0x40 (PCA9685 Servo Controller)
+    Channel 1: 0x28 (BNO055 IMU)
+    Channel 0: 0x47 (BMP581 Barometer)
 """
 
 import sys
@@ -33,12 +31,10 @@ except ImportError as e:
 
 # Known device types by address
 KNOWN_DEVICES = {
-    0x4A: "BNO085 IMU",
-    0x77: "BMP388 Barometer",
-    0x40: "INA219 Current Sensor (Battery)",
-    0x41: "INA219 Current Sensor (System)",
-    0x44: "INA219 Current Sensor (Servo)",
-    0x70: "PCA9548 I2C Multiplexer",
+    0x28: "BNO055 IMU",
+    0x47: "BMP581 Barometer",
+    0x40: "PCA9685 Servo Controller",
+    0x70: "TCA9548A I2C Multiplexer",
     0x10: "Motoron Motor Controller #0",
     0x11: "Motoron Motor Controller #1",
     0x12: "Motoron Motor Controller #2",
@@ -121,11 +117,8 @@ def scan_with_multiplexer(i2c, mux_addr=0x70):
         # Print expected configuration
         print()
         print("Expected configuration:")
-        print("  Channel 0: 0x4A (BNO085 IMU)")
-        print("  Channel 1: 0x77 (BMP388 Barometer)")
-        print("  Channel 2: 0x40 (INA219 Battery Current Sensor)")
-        print("  Channel 3: 0x41 (INA219 System Current Sensor)")
-        print("  Channel 4: 0x44 (INA219 Servo Current Sensor)")
+        print("  Channel 0: 0x40 (PCA9685 Servo Controller), 0x47 (BMP581 Barometer)")
+        print("  Channel 1: 0x28 (BNO055 IMU)")
 
     except Exception as e:
         print(f"Failed to initialize multiplexer at 0x{mux_addr:02X}: {e}")

@@ -19,7 +19,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-SSD_MOUNT="/media/serpentbase/SSK SSD"
+SSD_MOUNT="/media/serpentbase/SSK_SSD"
 RECORDINGS_DIR="$SSD_MOUNT/serpent_recordings"
 DESKTOP_DIR="/home/serpentbase/Desktop"
 SYMLINK_NAME="SerpentRecordings"

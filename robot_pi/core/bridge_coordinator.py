@@ -85,18 +85,6 @@ class HaLowBridge:
             servo_max_duty=config.SERVO_MAX_DUTY
         )
 
-        # Configure chainsaw current sensors for autonomous cutting
-        current_sensors_config = {
-            'cs1': {
-                'addr':    config.CURRENT_SENSOR_CS1_ADDR,
-                'channel': config.CURRENT_SENSOR_CS1_CHANNEL,
-            },
-            'cs2': {
-                'addr':    config.CURRENT_SENSOR_CS2_ADDR,
-                'channel': config.CURRENT_SENSOR_CS2_CHANNEL,
-            },
-        }
-
         self.sensor_reader = SensorReader(
             i2c_bus=config.I2C_BUS,
             bno055_addr=config.BNO055_ADDRESS,
@@ -105,8 +93,7 @@ class HaLowBridge:
             use_multiplexer=config.USE_I2C_MULTIPLEXER,
             mux_addr=config.I2C_MUX_ADDRESS,
             imu_channel=config.IMU_MUX_CHANNEL,
-            baro_channel=config.BAROMETER_MUX_CHANNEL,
-            current_sensors=current_sensors_config
+            baro_channel=config.BAROMETER_MUX_CHANNEL
         )
 
         self.video_capture = None
@@ -306,10 +293,8 @@ class HaLowBridge:
                 sensor_data = self.sensor_reader.get_all_data()
                 motor_currents = self.actuator_controller.get_motor_currents()
                 estop_info = self.actuator_controller.get_estop_info()
-                current_data = sensor_data.get('current', {})
 
-                # Get battery voltage from current sensor, fallback to hardcoded value
-                battery_voltage = current_data.get('battery', {}).get('voltage', 12.0)
+                battery_voltage = 12.0  # Hardcoded - no current sensor
 
                 control_age_ms = int(self.control_server.get_control_age() * 1000)
 
@@ -325,9 +310,6 @@ class HaLowBridge:
                     'imu': sensor_data.get('imu', {}),
                     'barometer': sensor_data.get('barometer', {}),
                     'motor_currents': motor_currents,
-                    'battery': current_data.get('battery', {}),
-                    'system_power': current_data.get('system', {}),
-                    'servo_power': current_data.get('servo', {}),
                     'estop': estop_info,
                     'control_age_ms': control_age_ms,
                     'control_established': self.control_server.is_control_established(),

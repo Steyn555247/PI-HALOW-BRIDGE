@@ -61,39 +61,6 @@ I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
 IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '1'))  # BNO055 on channel 1
 BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '0'))  # BMP581 on channel 0
 
-# Current Sensor Configuration (INA228 - for power monitoring)
-# Battery current sensor
-CURRENT_SENSOR_BATTERY_ADDR = int(os.getenv('CURRENT_SENSOR_BATTERY_ADDR', '0x40'), 16)
-CURRENT_SENSOR_BATTERY_CHANNEL = int(os.getenv('CURRENT_SENSOR_BATTERY_CHANNEL', '0'))
-
-# System power current sensor
-CURRENT_SENSOR_SYSTEM_ADDR = int(os.getenv('CURRENT_SENSOR_SYSTEM_ADDR', '0x41'), 16)
-CURRENT_SENSOR_SYSTEM_CHANNEL = int(os.getenv('CURRENT_SENSOR_SYSTEM_CHANNEL', '0'))
-
-# Servo power current sensor
-CURRENT_SENSOR_SERVO_ADDR = int(os.getenv('CURRENT_SENSOR_SERVO_ADDR', '0x42'), 16)
-CURRENT_SENSOR_SERVO_CHANNEL = int(os.getenv('CURRENT_SENSOR_SERVO_CHANNEL', '0'))
-
-# Chainsaw current sensors (new INA228 sensors for auto-cut)
-CURRENT_SENSOR_CS1_ADDR = int(os.getenv('CURRENT_SENSOR_CS1_ADDR', '0x43'), 16)
-CURRENT_SENSOR_CS1_CHANNEL = int(os.getenv('CURRENT_SENSOR_CS1_CHANNEL', '2'))
-CURRENT_SENSOR_CS2_ADDR = int(os.getenv('CURRENT_SENSOR_CS2_ADDR', '0x44'), 16)
-CURRENT_SENSOR_CS2_CHANNEL = int(os.getenv('CURRENT_SENSOR_CS2_CHANNEL', '3'))
-
-# Autonomous cutting thresholds (tunable via env vars)
-AUTOCUT_HIGH_CURRENT_A           = float(os.getenv('AUTOCUT_HIGH_CURRENT_A', '8.0'))   # back off above this
-AUTOCUT_SAFE_CURRENT_A           = float(os.getenv('AUTOCUT_SAFE_CURRENT_A', '4.0'))   # re-advance below this
-AUTOCUT_IDLE_CURRENT_A           = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '1.5'))   # breakthrough threshold
-AUTOCUT_ADVANCE_SPEED            = int(os.getenv('AUTOCUT_ADVANCE_SPEED', '200'))       # feed-in speed (out of 800)
-AUTOCUT_BACKOFF_SPEED            = int(os.getenv('AUTOCUT_BACKOFF_SPEED', '400'))       # retreat speed
-AUTOCUT_BREAKTHROUGH_CONFIRM_S   = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '0.3'))
-AUTOCUT_DOUBLE_PRESS_WINDOW_S    = float(os.getenv('AUTOCUT_DOUBLE_PRESS_WINDOW_S', '0.6'))
-AUTOCUT_LOOP_INTERVAL_S          = float(os.getenv('AUTOCUT_LOOP_INTERVAL_S', '0.05'))
-
-# Current sensor parameters
-CURRENT_SENSOR_SHUNT_OHMS = float(os.getenv('CURRENT_SENSOR_SHUNT_OHMS', '0.001'))  # 1mΩ shunt
-CURRENT_SENSOR_MAX_EXPECTED_AMPS = float(os.getenv('CURRENT_SENSOR_MAX_EXPECTED_AMPS', '50.0'))
-
 # Motoron Configuration (I2C)
 MOTORON_ADDRESSES = [
     int(os.getenv('MOTORON_ADDR_0', '0x10'), 16),
