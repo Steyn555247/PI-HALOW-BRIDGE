@@ -24,6 +24,7 @@ import time
 import signal
 import sys
 import os
+import json
 import threading
 from typing import Optional
 
@@ -45,6 +46,9 @@ from robot_pi.control.control_server import ControlServer
 from robot_pi.telemetry.telemetry_sender import TelemetrySender
 
 logger = logging.getLogger(__name__)
+
+AUTOCUT_CMD_FILE = '/run/serpent/autocut_cmd'
+CHAINSAW_ONOFF_CMD_FILE = '/run/serpent/chainsaw_onoff_cmd'
 
 
 class HaLowBridge:
@@ -93,7 +97,15 @@ class HaLowBridge:
             use_multiplexer=config.USE_I2C_MULTIPLEXER,
             mux_addr=config.I2C_MUX_ADDRESS,
             imu_channel=config.IMU_MUX_CHANNEL,
-            baro_channel=config.BAROMETER_MUX_CHANNEL
+            baro_channel=config.BAROMETER_MUX_CHANNEL,
+            motor1_current_mux_channel=config.MOTOR1_CURRENT_MUX_CHANNEL,
+            motor1_current_sensor_addr=config.MOTOR1_CURRENT_SENSOR_ADDRESS,
+            motor2_current_mux_channel=config.MOTOR2_CURRENT_MUX_CHANNEL,
+            motor2_current_sensor_addr=config.MOTOR2_CURRENT_SENSOR_ADDRESS,
+            motor1_shunt_ohms=config.MOTOR1_CURRENT_SHUNT_OHMS,
+            motor1_max_amps=config.MOTOR1_CURRENT_MAX_AMPS,
+            motor2_shunt_ohms=config.MOTOR2_CURRENT_SHUNT_OHMS,
+            motor2_max_amps=config.MOTOR2_CURRENT_MAX_AMPS,
         )
 
         self.video_capture = None
@@ -204,6 +216,14 @@ class HaLowBridge:
         if not self.control_server.start_server():
             logger.error("Failed to start control server - retrying in background")
 
+        # Start autocut command poll thread (dashboard IPC)
+        autocut_cmd_thread = threading.Thread(target=self._autocut_cmd_poll_loop, daemon=True)
+        autocut_cmd_thread.start()
+
+        # Start chainsaw on/off command poll thread (dashboard IPC)
+        chainsaw_onoff_thread = threading.Thread(target=self._chainsaw_onoff_cmd_poll_loop, daemon=True)
+        chainsaw_onoff_thread.start()
+
         # Start control receiver thread
         control_thread = threading.Thread(target=self._control_receiver_loop, daemon=True)
         control_thread.start()
@@ -216,6 +236,99 @@ class HaLowBridge:
 
         # Watchdog loop runs in main thread
         self._watchdog_loop()
+
+    def _autocut_cmd_poll_loop(self):
+        """
+        Poll for autocut commands from the dashboard via file IPC.
+
+        Dashboard writes /run/serpent/autocut_cmd with JSON:
+            {"chainsaw_id": 1|2, "action": "start"|"stop"}
+        This thread reads, deletes, then dispatches to CommandExecutor.
+        """
+        logger.info("Autocut command poll loop started")
+        while self.running:
+            try:
+                if os.path.exists(AUTOCUT_CMD_FILE):
+                    try:
+                        with open(AUTOCUT_CMD_FILE, 'r') as f:
+                            cmd = json.load(f)
+                        os.unlink(AUTOCUT_CMD_FILE)
+                    except (json.JSONDecodeError, OSError) as e:
+                        logger.warning(f"Bad autocut cmd file: {e}")
+                        try:
+                            os.unlink(AUTOCUT_CMD_FILE)
+                        except OSError:
+                            pass
+                        time.sleep(0.2)
+                        continue
+
+                    chainsaw_id = int(cmd.get('chainsaw_id', 0))
+                    action = cmd.get('action', '')
+
+                    if chainsaw_id not in (1, 2):
+                        logger.warning(f"Invalid autocut chainsaw_id: {chainsaw_id}")
+                    elif action == 'start':
+                        logger.info(f"Dashboard: starting autocut CS{chainsaw_id}")
+                        self.command_executor._start_autocut(chainsaw_id)
+                    elif action == 'stop':
+                        logger.info(f"Dashboard: stopping autocut CS{chainsaw_id}")
+                        self.command_executor._stop_autocut(chainsaw_id)
+                    else:
+                        logger.warning(f"Unknown autocut action: {action}")
+
+            except Exception as e:
+                logger.error(f"Error in autocut cmd poll loop: {e}")
+
+            time.sleep(0.2)
+        logger.info("Autocut command poll loop stopped")
+
+    def _chainsaw_onoff_cmd_poll_loop(self):
+        """
+        Poll for chainsaw on/off commands from the dashboard via file IPC.
+
+        Dashboard writes /run/serpent/chainsaw_onoff_cmd with JSON:
+            {"chainsaw_id": 1|2, "action": "on"|"off"}
+        Routes through ChainsawRamp so the motor gets proper soft-start/stop
+        and keepalive — identical to L2/R2 button behaviour.
+        """
+        logger.info("Chainsaw on/off command poll loop started")
+        while self.running:
+            try:
+                if os.path.exists(CHAINSAW_ONOFF_CMD_FILE):
+                    try:
+                        with open(CHAINSAW_ONOFF_CMD_FILE, 'r') as f:
+                            cmd = json.load(f)
+                        os.unlink(CHAINSAW_ONOFF_CMD_FILE)
+                    except (json.JSONDecodeError, OSError) as e:
+                        logger.warning(f"Bad chainsaw_onoff cmd file: {e}")
+                        try:
+                            os.unlink(CHAINSAW_ONOFF_CMD_FILE)
+                        except OSError:
+                            pass
+                        time.sleep(0.2)
+                        continue
+
+                    chainsaw_id = int(cmd.get('chainsaw_id', 0))
+                    action = cmd.get('action', '')
+
+                    if chainsaw_id not in (1, 2):
+                        logger.warning(f"Invalid chainsaw_onoff chainsaw_id: {chainsaw_id}")
+                    elif action == 'on':
+                        ramp = self.command_executor._cs1_ramp if chainsaw_id == 1 else self.command_executor._cs2_ramp
+                        logger.info(f"Dashboard: chainsaw CS{chainsaw_id} ON (soft-start via ramp)")
+                        ramp.set_target(-self.command_executor._chainsaw_onoff_speed)
+                    elif action == 'off':
+                        ramp = self.command_executor._cs1_ramp if chainsaw_id == 1 else self.command_executor._cs2_ramp
+                        logger.info(f"Dashboard: chainsaw CS{chainsaw_id} OFF (soft-stop via ramp)")
+                        ramp.set_target(0)
+                    else:
+                        logger.warning(f"Unknown chainsaw_onoff action: {action}")
+
+            except Exception as e:
+                logger.error(f"Error in chainsaw_onoff cmd poll loop: {e}")
+
+            time.sleep(0.2)
+        logger.info("Chainsaw on/off command poll loop stopped")
 
     def stop(self):
         """Stop the bridge."""
@@ -291,7 +404,8 @@ class HaLowBridge:
 
                 # Collect telemetry
                 sensor_data = self.sensor_reader.get_all_data()
-                motor_currents = self.actuator_controller.get_motor_currents()
+                motor1_current = self.sensor_reader.get_motor1_current()
+                motor2_current = self.sensor_reader.get_motor2_current()
                 estop_info = self.actuator_controller.get_estop_info()
 
                 battery_voltage = 12.0  # Hardcoded - no current sensor
@@ -309,7 +423,8 @@ class HaLowBridge:
                     'rope_force': 0.0,
                     'imu': sensor_data.get('imu', {}),
                     'barometer': sensor_data.get('barometer', {}),
-                    'motor_currents': motor_currents,
+                    'motor1_current': motor1_current,
+                    'motor2_current': motor2_current,
                     'estop': estop_info,
                     'control_age_ms': control_age_ms,
                     'control_established': self.control_server.is_control_established(),
@@ -348,14 +463,14 @@ class HaLowBridge:
                     telemetry_connected=self.telemetry_sender.is_connected()
                 )
 
-                # Log status periodically (include sensor data and motor currents for dashboard)
+                # Log status periodically (include sensor data for dashboard)
                 sensor_data = self.sensor_reader.get_all_data()
-                motor_currents = self.actuator_controller.get_motor_currents()
                 video_stats = self.video_capture.get_stats() if self.video_capture else None
                 self.watchdog_monitor.log_status(
                     telemetry_connected=self.telemetry_sender.is_connected(),
                     sensor_data=sensor_data,
-                    motor_currents=motor_currents,
+                    motor1_current=self.sensor_reader.get_motor1_current(),
+                    motor2_current=self.sensor_reader.get_motor2_current(),
                     video_stats=video_stats
                 )
 

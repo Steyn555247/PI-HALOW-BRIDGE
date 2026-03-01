@@ -6,6 +6,8 @@ Flask application with REST API and WebSocket real-time updates.
 
 import logging
 import sys
+import json
+import os
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -65,6 +67,19 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 status_update_thread = None
 status_update_running = False
 
+# Background threads for 20 Hz current push
+MOTOR1_CURRENT_FILE = '/run/serpent/motor1_current'
+MOTOR2_CURRENT_FILE = '/run/serpent/motor2_current'
+
+# Autonomous cutting IPC files
+AUTOCUT_CMD_FILE = '/run/serpent/autocut_cmd'
+AUTOCUT_STATUS_FILE = '/run/serpent/autocut_status'
+CHAINSAW_ONOFF_CMD_FILE = '/run/serpent/chainsaw_onoff_cmd'
+motor1_current_thread = None
+motor1_current_running = False
+motor2_current_thread = None
+motor2_current_running = False
+
 # Socket.IO client to connect to backend (for Base Pi only)
 backend_client = None
 backend_client_connected = False
@@ -92,6 +107,70 @@ def status_update_worker():
             time.sleep(1)
 
     logger.info("Status update worker stopped")
+
+
+def motor1_current_worker():
+    """Push motor 1 current readings via WebSocket at 20 Hz."""
+    global motor1_current_running
+    logger.info("Motor 1 current worker started (20 Hz)")
+    while motor1_current_running:
+        try:
+            with open(MOTOR1_CURRENT_FILE) as f:
+                value = float(f.read().strip())
+            socketio.emit('motor1_current_update', {'value': value}, namespace='/ws/status')
+        except FileNotFoundError:
+            pass  # Bridge not running yet
+        except Exception as e:
+            logger.debug(f"Motor 1 current read error: {e}")
+        time.sleep(0.05)  # 20 Hz
+    logger.info("Motor 1 current worker stopped")
+
+
+def motor2_current_worker():
+    """Push motor 2 current readings via WebSocket at 20 Hz."""
+    global motor2_current_running
+    logger.info("Motor 2 current worker started (20 Hz)")
+    while motor2_current_running:
+        try:
+            with open(MOTOR2_CURRENT_FILE) as f:
+                value = float(f.read().strip())
+            socketio.emit('motor2_current_update', {'value': value}, namespace='/ws/status')
+        except FileNotFoundError:
+            pass  # Bridge not running yet
+        except Exception as e:
+            logger.debug(f"Motor 2 current read error: {e}")
+        time.sleep(0.05)  # 20 Hz
+    logger.info("Motor 2 current worker stopped")
+
+
+def start_motor1_current_updates():
+    """Start the 20 Hz motor 1 current push thread."""
+    global motor1_current_thread, motor1_current_running
+    if motor1_current_thread is None or not motor1_current_thread.is_alive():
+        motor1_current_running = True
+        motor1_current_thread = threading.Thread(target=motor1_current_worker, daemon=True)
+        motor1_current_thread.start()
+
+
+def stop_motor1_current_updates():
+    """Stop the 20 Hz motor 1 current push thread."""
+    global motor1_current_running
+    motor1_current_running = False
+
+
+def start_motor2_current_updates():
+    """Start the 20 Hz motor 2 current push thread."""
+    global motor2_current_thread, motor2_current_running
+    if motor2_current_thread is None or not motor2_current_thread.is_alive():
+        motor2_current_running = True
+        motor2_current_thread = threading.Thread(target=motor2_current_worker, daemon=True)
+        motor2_current_thread.start()
+
+
+def stop_motor2_current_updates():
+    """Stop the 20 Hz motor 2 current push thread."""
+    global motor2_current_running
+    motor2_current_running = False
 
 
 def connect_to_backend():
@@ -364,7 +443,29 @@ def api_motor_set():
         if speed < -800 or speed > 800:
             return jsonify({'error': 'speed must be -800 to +800'}), 400
 
-        # Check if actuator controller is available
+        # Motors 4 (CS2 blade) and 5 (CS1 blade) are routed through the
+        # bridge's ChainsawRamp via IPC so they get soft-start/stop and
+        # keepalive. A direct one-shot command would time out after ~1.5s.
+        if motor_id in (4, 5):
+            chainsaw_id = 1 if motor_id == 5 else 2
+            action = 'off' if speed == 0 else 'on'
+            cmd = {'chainsaw_id': chainsaw_id, 'action': action}
+            try:
+                tmp = CHAINSAW_ONOFF_CMD_FILE + '.tmp'
+                with open(tmp, 'w') as f:
+                    json.dump(cmd, f)
+                os.replace(tmp, CHAINSAW_ONOFF_CMD_FILE)
+                return jsonify({
+                    'success': True,
+                    'motor_id': motor_id,
+                    'speed': speed,
+                    'message': f'Chainsaw CS{chainsaw_id} {action} command sent (via ramp)'
+                })
+            except Exception as e:
+                logger.error(f"Failed to write chainsaw_onoff cmd: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        # Check if actuator controller is available for all other motors
         if actuator_controller is None:
             return jsonify({'error': 'Actuator controller not initialized'}), 503
 
@@ -415,6 +516,64 @@ def api_estop_clear():
 
     except Exception as e:
         logger.error(f"E-STOP clear failed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/autocut/start', methods=['POST'])
+def api_autocut_start():
+    """Start autonomous cutting for a chainsaw (robot Pi only)"""
+    if config.DASHBOARD_ROLE != 'robot_pi':
+        return jsonify({'error': 'Autocut control only available on robot Pi'}), 403
+    try:
+        data = request.get_json() or {}
+        chainsaw_id = int(data.get('chainsaw_id', 0))
+        if chainsaw_id not in (1, 2):
+            return jsonify({'error': 'chainsaw_id must be 1 or 2'}), 400
+        cmd = {'chainsaw_id': chainsaw_id, 'action': 'start'}
+        tmp = AUTOCUT_CMD_FILE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(cmd, f)
+        os.replace(tmp, AUTOCUT_CMD_FILE)
+        return jsonify({'success': True, 'chainsaw_id': chainsaw_id, 'action': 'start'})
+    except Exception as e:
+        logger.error(f"Autocut start failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/autocut/stop', methods=['POST'])
+def api_autocut_stop():
+    """Stop autonomous cutting for a chainsaw (robot Pi only)"""
+    if config.DASHBOARD_ROLE != 'robot_pi':
+        return jsonify({'error': 'Autocut control only available on robot Pi'}), 403
+    try:
+        data = request.get_json() or {}
+        chainsaw_id = int(data.get('chainsaw_id', 0))
+        if chainsaw_id not in (1, 2):
+            return jsonify({'error': 'chainsaw_id must be 1 or 2'}), 400
+        cmd = {'chainsaw_id': chainsaw_id, 'action': 'stop'}
+        tmp = AUTOCUT_CMD_FILE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(cmd, f)
+        os.replace(tmp, AUTOCUT_CMD_FILE)
+        return jsonify({'success': True, 'chainsaw_id': chainsaw_id, 'action': 'stop'})
+    except Exception as e:
+        logger.error(f"Autocut stop failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/autocut/status')
+def api_autocut_status():
+    """Get autonomous cutting status (robot Pi only)"""
+    if config.DASHBOARD_ROLE != 'robot_pi':
+        return jsonify({'error': 'Autocut status only available on robot Pi'}), 403
+    try:
+        with open(AUTOCUT_STATUS_FILE) as f:
+            status = json.load(f)
+        return jsonify(status)
+    except FileNotFoundError:
+        return jsonify({'cs1': False, 'cs2': False})
+    except Exception as e:
+        logger.error(f"Autocut status read failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -487,6 +646,8 @@ if __name__ == '__main__':
 
     # Start background status updates
     start_status_updates()
+    start_motor1_current_updates()
+    start_motor2_current_updates()
 
     # Connect to backend to receive input events (Base Pi only)
     if config.DASHBOARD_ROLE == 'base_pi':
@@ -506,4 +667,6 @@ if __name__ == '__main__':
         )
     finally:
         stop_status_updates()
+        stop_motor1_current_updates()
+        stop_motor2_current_updates()
         disconnect_from_backend()
