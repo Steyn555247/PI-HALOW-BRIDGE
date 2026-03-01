@@ -6,8 +6,8 @@ backs off when current is too high, and stops when it detects
 the branch is cut (current drops suddenly after peaking).
 
 Chainsaw ID mapping:
-  CS1: on/off = Motor 4 (-speed, direction swapped), feed = Motor 2 (+up, -down)
-  CS2: on/off = Motor 5 (+speed),                   feed = Motor 3 (-up, +down swapped)
+  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (-down/+retract), current = sensor 1 (mux ch.7)
+  CS2: on/off = Motor 4 (-speed), feed = Motor 3 (+down/-retract), current = sensor 2 (mux ch.6)
 """
 
 import threading
@@ -53,6 +53,7 @@ class AutonomousCutter:
         breakthrough_confirm_s,
         loop_interval_s,
         onoff_speed=720,
+        set_blade_speed=None,
         on_complete=None,
     ):
         """
@@ -68,6 +69,10 @@ class AutonomousCutter:
             breakthrough_confirm_s:  Time current must stay below idle to confirm cut (s)
             loop_interval_s:         Control loop sleep interval (s)
             onoff_speed:             On/off motor speed (0–800), default 720 (90%)
+            set_blade_speed:         Optional callable(speed: int) to set the on/off motor
+                                     speed (e.g. a ChainsawRamp.set_target). When provided,
+                                     keepalive is handled externally by that callable.
+                                     Falls back to direct set_motor_speed if None.
             on_complete:             Optional callback(chainsaw_id) on breakthrough
         """
         self.chainsaw_id          = chainsaw_id
@@ -81,38 +86,50 @@ class AutonomousCutter:
         self.breakthrough_confirm_s = breakthrough_confirm_s
         self.loop_interval_s      = loop_interval_s
         self.onoff_speed          = onoff_speed
+        self.set_blade_speed      = set_blade_speed
         self.on_complete          = on_complete
 
         # Motor / sensor assignment
         if chainsaw_id == 1:
-            self.onoff_motor = 4      # Motor 4: direction swapped → use -speed
-            self.feed_motor  = 2      # Motor 2: +speed=up, -speed=down
+            self.onoff_motor = 5      # Motor 5: use -speed
+            self.feed_motor  = 2      # Motor 2: -speed=down, +speed=retract
             self.sensor_key  = 'cs1'
         else:
-            self.onoff_motor = 5      # Motor 5: normal → use +speed
-            self.feed_motor  = 3      # Motor 3: -speed=up, +speed=down (swapped)
+            self.onoff_motor = 4      # Motor 4: use -speed
+            self.feed_motor  = 3      # Motor 3: +speed=down, -speed=retract
             self.sensor_key  = 'cs2'
 
         self._running = False
         self._thread: threading.Thread = None
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _set_onoff(self, speed: int):
+        """
+        Set the on/off motor speed, routing through the soft-start ramp
+        when available, or directly through the actuator otherwise.
+        """
+        if self.set_blade_speed is not None:
+            self.set_blade_speed(speed)
+        else:
+            self.actuator_controller.set_motor_speed(self.onoff_motor, speed)
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def start(self):
-        """Turn on the chainsaw blade and launch the autonomous control loop."""
+        """Turn on the chainsaw blade (via soft-start ramp) and launch the autonomous control loop."""
         logger.info(
             f"AutonomousCutter CS{self.chainsaw_id}: starting "
             f"(high={self.high_current}A safe={self.safe_current}A "
             f"idle={self.idle_current}A advance={self.advance_speed} "
             f"backoff={self.backoff_speed})"
         )
-        # Turn on chainsaw on/off motor
-        if self.chainsaw_id == 1:
-            self.actuator_controller.set_motor_speed(self.onoff_motor, -self.onoff_speed)
-        else:
-            self.actuator_controller.set_motor_speed(self.onoff_motor, self.onoff_speed)
+        # Turn on chainsaw on/off motor via soft-start ramp (or direct if no ramp provided)
+        self._set_onoff(-self.onoff_speed)
 
         self._running = True
         self._thread = threading.Thread(
@@ -123,33 +140,29 @@ class AutonomousCutter:
         self._thread.start()
 
     def stop(self):
-        """Signal the control loop to exit, wait for it, then stop all motors."""
+        """Signal the control loop to exit and immediately stop all motors."""
         logger.info(f"AutonomousCutter CS{self.chainsaw_id}: stop requested")
         self._running = False
+        # Stop motors immediately — don't wait for the thread
+        self._stop_motors()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
-        # Ensure motors are off regardless of how the thread exited
-        self._stop_motors()
 
     def is_running(self) -> bool:
         """Return True while the control loop is active."""
         return self._running
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _get_current(self) -> float:
         """
-        Read current (A) from the SensorReader's latest_current_data.
-        Returns 0.0 if the sensor data is not yet available.
+        Read current (A) from the external INA238 sensor via SensorReader.
+        CS1 uses sensor 1 (mux ch.7); CS2 uses sensor 2 (mux ch.6).
+        Returns 0.0 on error.
         """
         try:
-            with self.sensor_reader.data_lock:
-                sensor_data = self.sensor_reader.latest_current_data.get(
-                    self.sensor_key, {}
-                )
-            return float(sensor_data.get('current', 0.0))
+            if self.chainsaw_id == 1:
+                return self.sensor_reader.get_motor1_current()
+            else:
+                return self.sensor_reader.get_motor2_current()
         except Exception as e:
             logger.error(
                 f"AutonomousCutter CS{self.chainsaw_id}: error reading current: {e}"
@@ -160,8 +173,8 @@ class AutonomousCutter:
         """
         Drive the feed motor.
 
-        CS1 Motor 2: +speed = up (retract),  -speed = down (advance)
-        CS2 Motor 3: -speed = up (retract),  +speed = down (advance)  [direction swapped]
+        CS1 Motor 2: -speed = forward/down (advance),  +speed = retract
+        CS2 Motor 3: +speed = down (advance),          -speed = retract
         """
         if self.chainsaw_id == 1:
             motor_speed = -speed if down else speed
@@ -170,13 +183,18 @@ class AutonomousCutter:
         self.actuator_controller.set_motor_speed(self.feed_motor, motor_speed)
 
     def _stop_motors(self):
-        """Stop both the feed motor and the on/off motor."""
+        """Stop feed motor immediately; ramp the on/off motor down via soft-stop."""
         try:
             self.actuator_controller.set_motor_speed(self.feed_motor, 0)
-            self.actuator_controller.set_motor_speed(self.onoff_motor, 0)
         except Exception as e:
             logger.error(
-                f"AutonomousCutter CS{self.chainsaw_id}: error stopping motors: {e}"
+                f"AutonomousCutter CS{self.chainsaw_id}: error stopping feed motor: {e}"
+            )
+        try:
+            self._set_onoff(0)
+        except Exception as e:
+            logger.error(
+                f"AutonomousCutter CS{self.chainsaw_id}: error stopping on/off motor: {e}"
             )
 
     # ------------------------------------------------------------------
@@ -202,14 +220,36 @@ class AutonomousCutter:
           Clears _running flag; loop exits; motors are stopped.
           on_complete callback is fired if provided.
         """
-        state           = CuttingState.ADVANCING
-        has_peaked      = False   # True once current has exceeded high_current
-        low_since       = None    # When current first dropped below idle_current
+        state             = CuttingState.ADVANCING
+        has_peaked        = False   # True once current has exceeded high_current
+        low_since         = None    # When current first dropped below idle_current
+        last_backoff_time = None    # When we last left BACKING_OFF → used for grace period
+        POST_BACKOFF_GRACE_S = 2.0  # Don't allow breakthrough until this many seconds after last backoff
         completed_naturally = False
 
         logger.info(
             f"AutonomousCutter CS{self.chainsaw_id}: control loop started"
         )
+
+        # Wait for the blade to reach full speed before engaging the feed
+        # motor or monitoring current — avoids a false BACKING_OFF from the
+        # startup current spike.
+        STARTUP_DELAY_S = 1.5
+        logger.info(
+            f"AutonomousCutter CS{self.chainsaw_id}: "
+            f"startup delay {STARTUP_DELAY_S}s (blade spin-up)"
+        )
+        # Keepalive is handled by ChainsawRamp (10 Hz). Just wait here.
+        deadline = time.time() + STARTUP_DELAY_S
+        while self._running and time.time() < deadline:
+            time.sleep(self.loop_interval_s)
+
+        if not self._running:
+            self._stop_motors()
+            logger.info(
+                f"AutonomousCutter CS{self.chainsaw_id}: stopped during startup delay"
+            )
+            return
 
         while self._running:
             current = self._get_current()
@@ -227,8 +267,17 @@ class AutonomousCutter:
                     )
 
                 elif has_peaked and current < self.idle_current:
-                    # Possible breakthrough — start / extend confirmation timer
-                    if low_since is None:
+                    # Only allow breakthrough detection after the post-backoff grace period.
+                    # This prevents false COMPLETE when the feed re-advances after a backoff
+                    # and is momentarily in air before contacting the wood again.
+                    grace_expired = (
+                        last_backoff_time is None or
+                        time.time() - last_backoff_time >= POST_BACKOFF_GRACE_S
+                    )
+                    if not grace_expired:
+                        # Still in grace period — don't start breakthrough timer
+                        low_since = None
+                    elif low_since is None:
                         low_since = time.time()
                         logger.debug(
                             f"AutonomousCutter CS{self.chainsaw_id}: potential "
@@ -256,19 +305,38 @@ class AutonomousCutter:
 
                 if current < self.safe_current:
                     state = CuttingState.ADVANCING
+                    last_backoff_time = time.time()  # Start grace period for breakthrough detection
                     logger.info(
                         f"AutonomousCutter CS{self.chainsaw_id}: {current:.2f}A < "
-                        f"{self.safe_current}A → ADVANCING"
+                        f"{self.safe_current}A → ADVANCING (grace period {POST_BACKOFF_GRACE_S}s)"
                     )
 
             elif state == CuttingState.COMPLETE:
+                # Retract feed slowly — blade (on/off motor) keeps running.
+                # User can stop the blade manually after the cut is done.
+                self._set_feed(down=False, speed=self.advance_speed)
+                logger.info(
+                    f"AutonomousCutter CS{self.chainsaw_id}: "
+                    f"COMPLETE — retracting feed at speed {self.advance_speed}, blade stays on"
+                )
                 completed_naturally = True
                 self._running = False   # Causes loop to exit on next iteration check
 
             time.sleep(self.loop_interval_s)
 
         # ---- loop has exited ----
-        self._stop_motors()
+        if completed_naturally:
+            # Breakthrough detected — stop only the feed motor.
+            # The blade (on/off motor) keeps running; user stops it manually.
+            try:
+                self.actuator_controller.set_motor_speed(self.feed_motor, 0)
+            except Exception as e:
+                logger.error(
+                    f"AutonomousCutter CS{self.chainsaw_id}: error stopping feed motor: {e}"
+                )
+        else:
+            # Manually stopped — stop everything immediately.
+            self._stop_motors()
 
         if completed_naturally and self.on_complete:
             try:

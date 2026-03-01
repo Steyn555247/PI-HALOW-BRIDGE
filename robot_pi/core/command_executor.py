@@ -13,6 +13,7 @@ SAFETY-CRITICAL:
 
 import logging
 import json
+import os
 import time
 import threading
 from typing import Dict, Any, Optional, Tuple
@@ -25,6 +26,112 @@ from robot_pi import config
 from robot_pi.core.autonomous_cutter import AutonomousCutter
 
 logger = logging.getLogger(__name__)
+
+AUTOCUT_STATUS_FILE = '/run/serpent/autocut_status'
+
+
+class ChainsawRamp:
+    """
+    Soft start/stop ramp for a chainsaw on/off motor.
+
+    Ramps motor speed linearly when starting or stopping to reduce
+    inrush current spikes. Sends keepalive commands at 10 Hz to
+    prevent Motoron command-timeout while holding speed.
+
+    E-STOP behaviour: actuator_controller.engage_estop() already stops
+    the motor at the hardware level. This class additionally resets its
+    internal state to 0 when it detects E-STOP, so the motor does NOT
+    restart automatically when E-STOP is cleared.
+    """
+
+    RAMP_UP_S   = 1.0   # seconds from 0 → full speed
+    RAMP_DOWN_S = 1.5   # seconds from full speed → 0
+    LOOP_HZ     = 50    # ramp update rate
+    KEEPALIVE_HZ = 10   # keepalive rate when holding target speed
+
+    def __init__(self, motor_id: int, full_speed: int, actuator_controller):
+        """
+        Args:
+            motor_id:             Motor to drive (e.g. 4 or 5)
+            full_speed:           Absolute max speed value (e.g. 720)
+            actuator_controller:  ActuatorController instance
+        """
+        self.motor_id            = motor_id
+        self.full_speed          = full_speed
+        self.actuator_controller = actuator_controller
+
+        self._lock      = threading.Lock()
+        self._target    = 0    # desired speed (signed int)
+        self._current   = 0    # last speed commanded to hardware (int)
+        self._current_f = 0.0  # float accumulator for smooth stepping
+
+        self._running = True
+        self._thread  = threading.Thread(
+            target=self._loop,
+            daemon=True,
+            name=f"cs-ramp-m{motor_id}",
+        )
+        self._thread.start()
+
+    def set_target(self, speed: int):
+        """Set desired speed. Ramp thread transitions smoothly."""
+        with self._lock:
+            self._target = speed
+
+    def stop_thread(self):
+        """Stop the background ramp thread."""
+        self._running = False
+        self._thread.join(timeout=2.0)
+
+    def _loop(self):
+        interval          = 1.0 / self.LOOP_HZ
+        keepalive_interval = 1.0 / self.KEEPALIVE_HZ
+        up_step   = self.full_speed / (self.RAMP_UP_S   * self.LOOP_HZ)
+        down_step = self.full_speed / (self.RAMP_DOWN_S * self.LOOP_HZ)
+        last_send = 0.0
+
+        while self._running:
+            time.sleep(interval)
+
+            # E-STOP: motor already stopped by actuator. Reset internal
+            # state so the motor does not restart when E-STOP is cleared.
+            if self.actuator_controller.is_estop_engaged():
+                with self._lock:
+                    self._current  = 0
+                    self._target   = 0
+                self._current_f = 0.0
+                continue
+
+            with self._lock:
+                target  = self._target
+                current = self._current
+
+            if current != target:
+                # Ramp-up when magnitude is increasing, ramp-down otherwise.
+                ramping_up = abs(target) > abs(current)
+                step = up_step if ramping_up else down_step
+
+                if target < current:   # going more negative (spinning up)
+                    self._current_f = max(float(target), self._current_f - step)
+                else:                  # going toward 0 (spinning down)
+                    self._current_f = min(float(target), self._current_f + step)
+
+                new_speed = int(round(self._current_f))
+                with self._lock:
+                    self._current = new_speed
+                self.actuator_controller.set_motor_speed(self.motor_id, new_speed)
+                last_send = time.time()
+
+            elif current != 0:
+                # Holding non-zero speed: send keepalive to prevent Motoron timeout.
+                now = time.time()
+                if now - last_send >= keepalive_interval:
+                    self.actuator_controller.set_motor_speed(self.motor_id, current)
+                    last_send = now
+
+            else:
+                # At 0, keep float accumulator in sync.
+                self._current_f = 0.0
 
 
 class CommandExecutor:
@@ -62,6 +169,20 @@ class CommandExecutor:
         # Chainsaw control - 90% power (720/800)
         self._chainsaw_speed_multiplier = 720
         self._chainsaw_onoff_speed = 720
+
+        # Soft-start/stop ramps for chainsaw on/off motors.
+        # CS1 = Motor 5, CS2 = Motor 4. Ramp threads start immediately
+        # but stay idle (target=0) until a command arrives.
+        self._cs1_ramp = ChainsawRamp(
+            motor_id=5,
+            full_speed=self._chainsaw_onoff_speed,
+            actuator_controller=actuator_controller,
+        )
+        self._cs2_ramp = ChainsawRamp(
+            motor_id=4,
+            full_speed=self._chainsaw_onoff_speed,
+            actuator_controller=actuator_controller,
+        )
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
 
@@ -189,10 +310,12 @@ class CommandExecutor:
             logger.info(f"Chainsaw timeout monitor started (timeout={self._chainsaw_timeout_s}s)")
 
     def stop_chainsaw_timeout_monitor(self):
-        """Stop the chainsaw timeout monitor thread."""
+        """Stop the chainsaw timeout monitor thread and ramp threads."""
         self._chainsaw_timeout_running = False
         if self._chainsaw_timeout_thread:
             self._chainsaw_timeout_thread.join(timeout=2.0)
+        self._cs1_ramp.stop_thread()
+        self._cs2_ramp.stop_thread()
         logger.info("Chainsaw timeout monitor stopped")
 
     def _chainsaw_timeout_loop(self):
@@ -486,7 +609,7 @@ class CommandExecutor:
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
-                # L2 button (index 6): Chainsaw 1 On/Off (Motor 4) - direction swapped
+                # L2 button (index 6): Chainsaw 1 On/Off (Motor 5)
                 # Double-press within AUTOCUT_DOUBLE_PRESS_WINDOW_S → autonomous cutting
                 # Single press/hold → normal hold-to-run
                 elif index == 6:
@@ -498,7 +621,7 @@ class CommandExecutor:
                         autocut_active = self._autocut1_active
 
                     if autocut_active:
-                        # Autocut owns Motor 4 — suppress all L2 events
+                        # Autocut owns Motor 5 — suppress all L2 events
                         pass
                     elif value > 0:
                         now = time.time()
@@ -508,16 +631,16 @@ class CommandExecutor:
                             self._start_autocut(1)
                             self._l2_last_press_time = 0.0  # Reset so next press is fresh
                         else:
-                            # First (or new) press — normal hold-to-run
+                            # First (or new) press — soft-start ramp
                             self._l2_last_press_time = now
-                            logger.info("L2 button: Chainsaw 1 ON (Motor 4, direction swapped)")
-                            self.actuator_controller.set_motor_speed(4, -self._chainsaw_onoff_speed)
+                            logger.info("L2 button: Chainsaw 1 ON (Motor 5, soft-start)")
+                            self._cs1_ramp.set_target(-self._chainsaw_onoff_speed)
                     else:
-                        # Release — normal stop
-                        logger.info("L2 button: Chainsaw 1 OFF (Motor 4)")
-                        self.actuator_controller.set_motor_speed(4, 0)
+                        # Release — soft-stop ramp
+                        logger.info("L2 button: Chainsaw 1 OFF (Motor 5, soft-stop)")
+                        self._cs1_ramp.set_target(0)
 
-                # R2 button (index 7): Chainsaw 2 On/Off (Motor 5)
+                # R2 button (index 7): Chainsaw 2 On/Off (Motor 4)
                 # Double-press within AUTOCUT_DOUBLE_PRESS_WINDOW_S → autonomous cutting
                 # Single press/hold → normal hold-to-run
                 elif index == 7:
@@ -529,7 +652,7 @@ class CommandExecutor:
                         autocut_active = self._autocut2_active
 
                     if autocut_active:
-                        # Autocut owns Motor 5 — suppress all R2 events
+                        # Autocut owns Motor 4 — suppress all R2 events
                         pass
                     elif value > 0:
                         now = time.time()
@@ -539,14 +662,14 @@ class CommandExecutor:
                             self._start_autocut(2)
                             self._r2_last_press_time = 0.0
                         else:
-                            # First (or new) press — normal hold-to-run
+                            # First (or new) press — soft-start ramp
                             self._r2_last_press_time = now
-                            logger.info("R2 button: Chainsaw 2 ON (Motor 5)")
-                            self.actuator_controller.set_motor_speed(5, self._chainsaw_onoff_speed)
+                            logger.info("R2 button: Chainsaw 2 ON (Motor 4, soft-start)")
+                            self._cs2_ramp.set_target(-self._chainsaw_onoff_speed)
                     else:
-                        # Release — normal stop
-                        logger.info("R2 button: Chainsaw 2 OFF (Motor 5)")
-                        self.actuator_controller.set_motor_speed(5, 0)
+                        # Release — soft-stop ramp
+                        logger.info("R2 button: Chainsaw 2 OFF (Motor 4, soft-stop)")
+                        self._cs2_ramp.set_target(0)
 
                 # Dpad Down button (index 11): Brake + Descent (Motor 7 forward - direction swapped)
                 elif index == 11:
@@ -567,8 +690,8 @@ class CommandExecutor:
         Handle chainsaw on/off push-button command.
 
         Motor mapping:
-        - chainsaw_id 1 → Motor 4
-        - chainsaw_id 2 → Motor 5
+        - chainsaw_id 1 → Motor 5
+        - chainsaw_id 2 → Motor 4
 
         Args:
             data: Command data with chainsaw_id and action ('on'/'off' or 'press'/'release')
@@ -580,21 +703,17 @@ class CommandExecutor:
         chainsaw_id = data.get('chainsaw_id', 1)
         action = data.get('action', 'off')
 
-        # Map chainsaw_id to motor: 1→Motor 4, 2→Motor 5
-        motor_id = 3 + chainsaw_id  # 1→4, 2→5
+        # Map chainsaw_id to ramp: 1→CS1 (Motor 5), 2→CS2 (Motor 4)
+        ramp = self._cs1_ramp if chainsaw_id == 1 else self._cs2_ramp
+        motor_id = 6 - chainsaw_id  # 1→5, 2→4  (for logging only)
 
         # Support both 'on'/'off' and 'press'/'release' for compatibility
-        # Note: Chainsaw 1 (Motor 4) has direction swapped
         if action in ('on', 'press'):
-            if chainsaw_id == 1:
-                logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (backward, direction swapped)")
-                self.actuator_controller.set_motor_speed(motor_id, -self._chainsaw_onoff_speed)  # 90% backward (swapped)
-            else:
-                logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (forward)")
-                self.actuator_controller.set_motor_speed(motor_id, self._chainsaw_onoff_speed)  # 90% forward
+            logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (soft-start)")
+            ramp.set_target(-self._chainsaw_onoff_speed)
         else:  # 'off' or 'release'
-            logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF")
-            self.actuator_controller.set_motor_speed(motor_id, 0)
+            logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF (soft-stop)")
+            ramp.set_target(0)
 
     def _handle_chainsaw_move(self, data: Dict[str, Any]):
         """
@@ -747,6 +866,20 @@ class CommandExecutor:
     # Autonomous cutting management
     # ------------------------------------------------------------------
 
+    def _write_autocut_status(self):
+        """Write current autocut running state to status file for dashboard."""
+        try:
+            status = {
+                'cs1': self._autocut1_active,
+                'cs2': self._autocut2_active,
+            }
+            tmp = AUTOCUT_STATUS_FILE + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(status, f)
+            os.replace(tmp, AUTOCUT_STATUS_FILE)
+        except Exception as e:
+            logger.debug(f"Could not write autocut status: {e}")
+
     def _start_autocut(self, chainsaw_id: int):
         """
         Create and start an AutonomousCutter for the given chainsaw.
@@ -773,6 +906,7 @@ class CommandExecutor:
                 self._autocut_cs2.stop()
                 self._autocut_cs2 = None
 
+            ramp = self._cs1_ramp if chainsaw_id == 1 else self._cs2_ramp
             cutter = AutonomousCutter(
                 chainsaw_id=chainsaw_id,
                 actuator_controller=self.actuator_controller,
@@ -785,6 +919,7 @@ class CommandExecutor:
                 breakthrough_confirm_s=config.AUTOCUT_BREAKTHROUGH_CONFIRM_S,
                 loop_interval_s=config.AUTOCUT_LOOP_INTERVAL_S,
                 onoff_speed=self._chainsaw_onoff_speed,
+                set_blade_speed=ramp.set_target,
                 on_complete=self._on_autocut_complete,
             )
 
@@ -802,6 +937,8 @@ class CommandExecutor:
 
             cutter.start()
             logger.info(f"Autocut CS{chainsaw_id} started (autonomous mode)")
+
+        self._write_autocut_status()
 
     def _stop_autocut(self, chainsaw_id: int):
         """
@@ -826,6 +963,7 @@ class CommandExecutor:
                 with self._chainsaw_lock:
                     self._chainsaw2_start_time = None
         logger.info(f"Autocut CS{chainsaw_id} stopped")
+        self._write_autocut_status()
 
     def _on_autocut_complete(self, chainsaw_id: int):
         """
@@ -846,6 +984,7 @@ class CommandExecutor:
         logger.info(
             f"Autocut CS{chainsaw_id} complete — branch cut, returning to manual mode"
         )
+        self._write_autocut_status()
 
     def get_pong_data(self) -> Optional[Dict[str, Any]]:
         """
