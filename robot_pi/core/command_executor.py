@@ -907,13 +907,23 @@ class CommandExecutor:
                 self._autocut_cs2 = None
 
             ramp = self._cs1_ramp if chainsaw_id == 1 else self._cs2_ramp
+            # Use per-chainsaw thresholds if defined, else fall back to defaults
+            if chainsaw_id == 1:
+                high_current = config.CS1_AUTOCUT_HIGH_CURRENT_A
+                safe_current = config.CS1_AUTOCUT_SAFE_CURRENT_A
+                idle_current = config.CS1_AUTOCUT_IDLE_CURRENT_A
+            else:
+                high_current = config.AUTOCUT_HIGH_CURRENT_A
+                safe_current = config.AUTOCUT_SAFE_CURRENT_A
+                idle_current = config.AUTOCUT_IDLE_CURRENT_A
+
             cutter = AutonomousCutter(
                 chainsaw_id=chainsaw_id,
                 actuator_controller=self.actuator_controller,
                 sensor_reader=self.sensor_reader,
-                high_current=config.AUTOCUT_HIGH_CURRENT_A,
-                safe_current=config.AUTOCUT_SAFE_CURRENT_A,
-                idle_current=config.AUTOCUT_IDLE_CURRENT_A,
+                high_current=high_current,
+                safe_current=safe_current,
+                idle_current=idle_current,
                 advance_speed=config.AUTOCUT_ADVANCE_SPEED,
                 backoff_speed=config.AUTOCUT_BACKOFF_SPEED,
                 breakthrough_confirm_s=config.AUTOCUT_BREAKTHROUGH_CONFIRM_S,

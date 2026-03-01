@@ -154,7 +154,7 @@ class HaLowBridge:
         # State
         self.running = False
 
-        logger.info("HaLowBridge initialized (Phase 5: modular architecture) - E-STOP is ENGAGED (fail-safe boot)")
+        logger.info("HaLowBridge initialized (Phase 5: modular architecture) - E-STOP DISABLED at boot (operator_command only)")
 
     def _on_command_received(self, payload: bytes, seq: int):
         """
@@ -503,7 +503,7 @@ def main():
 
     logger.info("=" * 60)
     logger.info("SERPENT ROBOT PI BRIDGE STARTING (Phase 5: Modular)")
-    logger.info("E-STOP is ENGAGED by default (fail-safe)")
+    logger.info("E-STOP DISABLED at boot (operator_command E-STOP only)")
     logger.info("=" * 60)
 
     # Create and start bridge

@@ -6,7 +6,7 @@ backs off when current is too high, and stops when it detects
 the branch is cut (current drops suddenly after peaking).
 
 Chainsaw ID mapping:
-  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (-down/+retract), current = sensor 1 (mux ch.7)
+  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (-down/+retract), current = sensor 1 (mux ch.0)
   CS2: on/off = Motor 4 (-speed), feed = Motor 3 (+down/-retract), current = sensor 2 (mux ch.6)
 """
 
@@ -155,7 +155,7 @@ class AutonomousCutter:
     def _get_current(self) -> float:
         """
         Read current (A) from the external INA238 sensor via SensorReader.
-        CS1 uses sensor 1 (mux ch.7); CS2 uses sensor 2 (mux ch.6).
+        CS1 uses sensor 1 (mux ch.0); CS2 uses sensor 2 (mux ch.6).
         Returns 0.0 on error.
         """
         try:

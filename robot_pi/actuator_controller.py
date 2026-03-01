@@ -71,7 +71,6 @@ class MockMotoron:
     def __init__(self, address: int):
         self.address = address
         self.speeds = {1: 0, 2: 0}
-        self.currents = {1: 0.0, 2: 0.0}
         logger.info(f"MockMotoron created at address 0x{address:02X}")
 
     def reinitialize(self):
@@ -91,17 +90,6 @@ class MockMotoron:
 
     def set_speed(self, channel: int, speed: int):
         self.speeds[channel] = speed
-        # Simulate current draw proportional to speed
-        self.currents[channel] = abs(speed) / 800.0 * 0.5  # Max 0.5A mock
-
-    def get_current_sense_reading(self, motor: int) -> dict:
-        """Mock implementation matching real Motoron API"""
-        current_ma = int(self.currents[motor] * 1000)
-        return {
-            'raw': current_ma,
-            'speed': self.speeds[motor],
-            'processed': current_ma  # Processed current in milliamps
-        }
 
 
 class MockServoPWM:
@@ -222,6 +210,13 @@ class ActuatorController:
         self._estop_timestamp = time.time()
         self._estop_history: List[dict] = []
 
+        # Per-board consecutive I2C error counts.
+        # E-STOP is only triggered after MOTORON_ERROR_THRESHOLD consecutive
+        # failures on the same board. Transient errors are logged but ignored —
+        # the Motoron's own 1.5 s command-timeout will stop the motor safely.
+        self._motoron_error_counts: List[int] = []
+        self.MOTORON_ERROR_THRESHOLD = 5  # consecutive failures before E-STOP
+
         # Single lock protects ALL E-STOP state and actuation
         # This prevents TOCTOU race conditions
         self._lock = threading.Lock()
@@ -272,25 +267,6 @@ class ActuatorController:
                         mc.set_max_acceleration(2, 200)
                         mc.set_max_deceleration(2, 200)
 
-                        # Configure current sensing
-                        # The Motoron current sense divisor must be low (1-5) for proper readings
-                        # High divisor values (like default 400) divide the reading, making it ~0
-                        try:
-                            # Set current sense minimum divisor to 2 for good sensitivity with low noise
-                            # Divisor of 1 = maximum sensitivity but more noise
-                            # Divisor of 2-5 = good balance between sensitivity and noise
-                            # Default 400 is way too high and makes readings essentially zero!
-                            mc.set_current_sense_minimum_divisor(1, 2)
-                            mc.set_current_sense_minimum_divisor(2, 2)
-
-                            # Current sense offset compensates for voltage offset when no current flows
-                            # Leave at default (12) which works well for most cases
-                            # Can adjust if seeing constant non-zero reading with motor stopped
-
-                            logger.info(f"Motoron {i} current sensing configured (divisor=2)")
-                        except Exception as e:
-                            logger.warning(f"Could not configure current sensing on Motoron {i}: {e}")
-
                         # Ensure motors are stopped
                         mc.set_speed(1, 0)
                         mc.set_speed(2, 0)
@@ -300,6 +276,9 @@ class ActuatorController:
                     except Exception as e:
                         logger.error(f"Failed to initialize Motoron {i} at 0x{addr:02X}: {e}")
                         self.motorons.append(None)
+
+                # Initialize per-board error counters
+                self._motoron_error_counts = [0] * len(self.motorons)
 
                 # Initialize servo
                 if self.use_pca9685:
@@ -369,6 +348,8 @@ class ActuatorController:
                 for i, addr in enumerate(self.motoron_addresses):
                     self.motorons.append(MockMotoron(addr))
 
+                self._motoron_error_counts = [0] * len(self.motorons)
+
                 # Mock servo
                 if self.use_pca9685:
                     self.servo_kit = MockServoKit(channels=self.pca9685_channels, address=self.pca9685_address)
@@ -384,7 +365,7 @@ class ActuatorController:
             # Ensure E-STOP remains engaged on init failure
             self.engage_estop(ESTOP_REASON_INTERNAL_ERROR, f"Init failed: {e}")
 
-        logger.info(f"ActuatorController started (E-STOP remains ENGAGED, sim_mode={SIM_MODE})")
+        logger.info(f"ActuatorController started (E-STOP DISABLED at boot, sim_mode={SIM_MODE})")
 
     def stop(self):
         """Stop all actuators and cleanup. Engages E-STOP."""
@@ -590,14 +571,36 @@ class ActuatorController:
                     speed = max(-800, min(800, speed))
                     self.motorons[board_id].set_speed(channel, speed)
                     logger.debug(f"Motor {motor_id} (board {board_id}, ch {channel}): speed={speed}")
+                    # Reset error counter on success
+                    if board_id < len(self._motoron_error_counts):
+                        self._motoron_error_counts[board_id] = 0
                     return True
                 except Exception as e:
-                    logger.error(f"Error setting motor {motor_id} speed: {e}")
-                    # Engage E-STOP on actuation error
-                    self._estop_engaged = True
-                    self._estop_reason = ESTOP_REASON_INTERNAL_ERROR
-                    self._log_estop_event("ENGAGED", ESTOP_REASON_INTERNAL_ERROR,
-                                         f"Motor {motor_id} error: {e}")
+                    # Count consecutive I2C failures per board.
+                    # The Motoron's own 1.5 s command-timeout will stop motors
+                    # safely on transient errors, so we only latch E-STOP after
+                    # MOTORON_ERROR_THRESHOLD consecutive failures.
+                    if board_id < len(self._motoron_error_counts):
+                        self._motoron_error_counts[board_id] += 1
+                        count = self._motoron_error_counts[board_id]
+                    else:
+                        count = self.MOTORON_ERROR_THRESHOLD  # unknown board → trip immediately
+
+                    if count >= self.MOTORON_ERROR_THRESHOLD:
+                        logger.error(
+                            f"Motor {motor_id} (board {board_id}) I2C failure #{count}: {e} "
+                            f"— triggering E-STOP"
+                        )
+                        self._estop_engaged = True
+                        self._estop_reason = ESTOP_REASON_INTERNAL_ERROR
+                        self._log_estop_event("ENGAGED", ESTOP_REASON_INTERNAL_ERROR,
+                                             f"Motor {motor_id} board {board_id} "
+                                             f"persistent I2C error ({count} failures): {e}")
+                    else:
+                        logger.warning(
+                            f"Motor {motor_id} (board {board_id}) I2C error "
+                            f"({count}/{self.MOTORON_ERROR_THRESHOLD}): {e} — skipping"
+                        )
                     return False
             else:
                 logger.warning(f"Motor {motor_id} board not available")
@@ -684,29 +687,6 @@ class ActuatorController:
             else:
                 logger.warning("Servo command failed: servo_pwm is None (not initialized)")
                 return False
-
-    def get_motor_currents(self) -> List[float]:
-        """Get current draw from all motors (if available)"""
-        currents = [0.0] * 8
-
-        with self._lock:
-            for i, mc in enumerate(self.motorons):
-                if mc:
-                    try:
-                        # Read current from motor 1 (channel 1)
-                        reading_1 = mc.get_current_sense_reading(1)
-                        current_1 = reading_1['processed'] / 1000.0  # Convert milliamps to amps
-
-                        # Read current from motor 2 (channel 2)
-                        reading_2 = mc.get_current_sense_reading(2)
-                        current_2 = reading_2['processed'] / 1000.0  # Convert milliamps to amps
-
-                        currents[i * 2] = current_1
-                        currents[i * 2 + 1] = current_2
-                    except Exception as e:
-                        logger.error(f"Error reading Motoron {i} current: {e}")
-
-        return currents
 
     # Legacy compatibility - maps to new API
     def emergency_stop_all(self):
