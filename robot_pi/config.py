@@ -58,9 +58,9 @@ SENSOR_READ_INTERVAL = float(os.getenv('SENSOR_READ_INTERVAL', '0.1'))  # 100ms
 # I2C Multiplexer Configuration (TCA9548A - REQUIRED for sensor access)
 USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'true').lower() == 'true'
 I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
-IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '1'))  # BNO055 on channel 1
-BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '0'))  # BMP581 on channel 0
-MOTOR1_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR1_CURRENT_MUX_CHANNEL', '0'))  # INA238 on channel 0
+IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '7'))  # BNO055 on channel 7 (daisy-chained with BMP581)
+BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '7'))  # BMP581 on channel 7 (daisy-chained with BNO055)
+MOTOR1_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR1_CURRENT_MUX_CHANNEL', '4'))  # INA238 on channel 4
 MOTOR1_CURRENT_SENSOR_ADDRESS = int(os.getenv('MOTOR1_CURRENT_SENSOR_ADDRESS', '0x40'), 16)  # INA238 default
 MOTOR2_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR2_CURRENT_MUX_CHANNEL', '6'))  # INA238 on channel 6
 MOTOR2_CURRENT_SENSOR_ADDRESS = int(os.getenv('MOTOR2_CURRENT_SENSOR_ADDRESS', '0x40'), 16)  # INA238 default
@@ -138,12 +138,13 @@ AUTOCUT_HIGH_CURRENT_A        = float(os.getenv('AUTOCUT_HIGH_CURRENT_A', '0.7')
 AUTOCUT_SAFE_CURRENT_A        = float(os.getenv('AUTOCUT_SAFE_CURRENT_A', '0.6'))   # Re-advance below this
 AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '0.5'))   # Breakthrough: current below this
 # CS1-specific thresholds (tuned for CS1 chainsaw's actual draw)
-CS1_AUTOCUT_HIGH_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_HIGH_CURRENT_A', '0.9'))   # CS1: back off above this
-CS1_AUTOCUT_SAFE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_SAFE_CURRENT_A', '0.75'))  # CS1: re-advance below this
-CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '0.5'))   # CS1: breakthrough threshold
+# Normal free-spin current: ~0.130A; contact/cutting: up to 0.2A; breakthrough: drops below 0.110A
+CS1_AUTOCUT_HIGH_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_HIGH_CURRENT_A', '0.3'))   # CS1: back off above this
+CS1_AUTOCUT_SAFE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_SAFE_CURRENT_A', '0.130')) # CS1: re-advance below this (back to normal)
+CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '0.110')) # CS1: breakthrough threshold
 # Feed motor speeds (0–800)
 AUTOCUT_ADVANCE_SPEED         = int(os.getenv('AUTOCUT_ADVANCE_SPEED', '250'))      # Slow advance into wood
-AUTOCUT_BACKOFF_SPEED         = int(os.getenv('AUTOCUT_BACKOFF_SPEED', '450'))      # Fast backoff on spike
+AUTOCUT_BACKOFF_SPEED         = int(os.getenv('AUTOCUT_BACKOFF_SPEED', '125'))      # Gentle backoff
 # Timing
 AUTOCUT_BREAKTHROUGH_CONFIRM_S = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '1.0'))  # Seconds at idle to confirm cut
 AUTOCUT_LOOP_INTERVAL_S       = float(os.getenv('AUTOCUT_LOOP_INTERVAL_S', '0.05'))         # Control loop rate (20 Hz)

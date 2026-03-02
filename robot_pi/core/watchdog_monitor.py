@@ -93,14 +93,13 @@ class WatchdogMonitor:
         # Startup grace period check disabled
         # Control timeout check disabled
 
-    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None, motor_currents: Optional[list] = None, video_stats: Optional[dict] = None):
+    def log_status(self, telemetry_connected: bool, sensor_data: Optional[dict] = None, motor1_current: Optional[float] = None, motor2_current: Optional[float] = None, video_stats: Optional[dict] = None):
         """
         Log status periodically.
 
         Args:
             telemetry_connected: Whether telemetry connection is active
             sensor_data: Optional sensor data (IMU, barometer) to include in status
-            motor_currents: Optional motor current data (list of 8 floats in amps)
             video_stats: Optional video connection and frame statistics
         """
         now = time.time()
@@ -131,9 +130,13 @@ class WatchdogMonitor:
                 if 'barometer' in sensor_data:
                     status['barometer'] = sensor_data['barometer']
 
-            # Add motor currents if available
-            if motor_currents:
-                status['motor_currents'] = motor_currents
+            # Add motor 1 external current sensor reading
+            if motor1_current is not None:
+                status['motor1_current'] = round(motor1_current, 4)
+
+            # Add motor 2 external current sensor reading
+            if motor2_current is not None:
+                status['motor2_current'] = round(motor2_current, 4)
 
             # Add video stats if available
             if video_stats:

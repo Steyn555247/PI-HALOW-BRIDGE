@@ -8,3 +8,4 @@ smbus2>=0.4.0
 git+https://github.com/pololu/motoron-python.git
 RPi.GPIO>=0.7.1
 adafruit-blinka>=8.20.0
+adafruit-circuitpython-ina23x>=1.0.0

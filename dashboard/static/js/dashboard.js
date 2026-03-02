@@ -41,6 +41,14 @@ function connectWebSocket() {
         updateControllerInput(data);
     });
 
+    socket.on('motor1_current_update', function(data) {
+        _renderMotor1Current(data.value);
+    });
+
+    socket.on('motor2_current_update', function(data) {
+        _renderMotor2Current(data.value);
+    });
+
     socket.on('error', function(error) {
         console.error('WebSocket error:', error);
     });
@@ -68,6 +76,17 @@ function updateDashboard(status) {
 
     // Update motor currents
     updateMotorCurrents(status.actuators);
+
+    // Update motor 1 external current sensor
+    updateMotor1Current(status.actuators);
+
+    // Update motor 2 external current sensor
+    updateMotor2Current(status.actuators);
+
+    // Update autonomous cutting status (robot Pi only)
+    if (DASHBOARD_ROLE === 'robot_pi') {
+        updateAutocutStatus();
+    }
 
     // Update issues
     updateIssues(status);
@@ -393,6 +412,67 @@ function updateMotorCurrents(actuators) {
 }
 
 // ============================================================================
+// Motor 1 External Current (INA238, mux ch.0)  — fast 20 Hz WebSocket path
+// ============================================================================
+
+// Fast path: direct 20 Hz push from bridge, bypasses the 1 Hz status aggregator
+// Handler is registered in connectWebSocket() above.
+
+function _renderMotor1Current(current) {
+    const el = document.getElementById('motor1-ext-current');
+    if (!el) return;
+    if (current === null || current === undefined) {
+        el.textContent = '-- A';
+        el.style.color = '';
+        return;
+    }
+    el.textContent = current.toFixed(3) + ' A';
+    if (current > 0.7) {
+        el.style.color = '#dc3545';  // red  — above high threshold, backing off
+    } else if (current > 0.5) {
+        el.style.color = '#ffc107';  // yellow — between idle and safe
+    } else {
+        el.style.color = '#0dcaf0';  // cyan  — idle / no load
+    }
+}
+
+// Slow fallback: called from the 1 Hz status_update event
+function updateMotor1Current(actuators) {
+    if (actuators && actuators.motor1_current !== undefined) {
+        _renderMotor1Current(actuators.motor1_current);
+    }
+}
+
+// ============================================================================
+// Motor 2 External Current (INA238, mux ch.6)  — fast 20 Hz WebSocket path
+// ============================================================================
+
+function _renderMotor2Current(current) {
+    const el = document.getElementById('motor2-ext-current');
+    if (!el) return;
+    if (current === null || current === undefined) {
+        el.textContent = '-- A';
+        el.style.color = '';
+        return;
+    }
+    el.textContent = current.toFixed(3) + ' A';
+    if (current > 0.7) {
+        el.style.color = '#dc3545';  // red  — above high threshold, backing off
+    } else if (current > 0.5) {
+        el.style.color = '#ffc107';  // yellow — between idle and safe
+    } else {
+        el.style.color = '#0dcaf0';  // cyan  — idle / no load
+    }
+}
+
+// Slow fallback: called from the 1 Hz status_update event
+function updateMotor2Current(actuators) {
+    if (actuators && actuators.motor2_current !== undefined) {
+        _renderMotor2Current(actuators.motor2_current);
+    }
+}
+
+// ============================================================================
 // Issues
 // ============================================================================
 
@@ -482,6 +562,65 @@ function setText(id, value) {
     const element = document.getElementById(id);
     if (element) {
         element.textContent = value !== undefined && value !== null ? value : '--';
+    }
+}
+
+// ============================================================================
+// Autonomous Cutting
+// ============================================================================
+
+function startAutocut(chainsawId) {
+    if (!confirm(`Start autonomous cutting on Chainsaw ${chainsawId}?\n\nEnsure the chainsaw is correctly positioned before proceeding.`)) {
+        return;
+    }
+    fetch('/api/autocut/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chainsaw_id: chainsawId})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Autocut start failed: ' + (data.error || data.message));
+        }
+    })
+    .catch(err => alert('Autocut start error: ' + err));
+}
+
+function stopAutocut(chainsawId) {
+    fetch('/api/autocut/stop', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chainsaw_id: chainsawId})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Autocut stop failed: ' + (data.error || data.message));
+        }
+    })
+    .catch(err => console.error('Autocut stop error:', err));
+}
+
+function updateAutocutStatus() {
+    fetch('/api/autocut/status')
+        .then(r => r.json())
+        .then(data => {
+            _setAutocutBadge('autocut-cs1-status', data.cs1);
+            _setAutocutBadge('autocut-cs2-status', data.cs2);
+        })
+        .catch(() => {});  // Silently ignore if bridge not running
+}
+
+function _setAutocutBadge(id, running) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (running) {
+        el.textContent = 'Running';
+        el.className = 'badge bg-warning text-dark';
+    } else {
+        el.textContent = 'Idle';
+        el.className = 'badge bg-secondary';
     }
 }
 

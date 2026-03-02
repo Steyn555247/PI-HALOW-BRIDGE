@@ -210,6 +210,66 @@
             </div>
         </div>
 
+        <!-- Motor 1 & 2 Current (External Sensors - always visible) -->
+        <div class="row mb-3">
+            <div class="col-md-6 mb-2 mb-md-0">
+                <div class="card h-100">
+                    <div class="card-body py-2 d-flex align-items-center">
+                        <span class="fw-semibold me-2">Motor 1 Current:</span>
+                        <span id="motor1-ext-current" class="fw-bold fs-5 text-info">-- A</span>
+                        <small class="text-muted ms-3">INA238 &bull; mux ch.0</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body py-2 d-flex align-items-center">
+                        <span class="fw-semibold me-2">Motor 2 Current:</span>
+                        <span id="motor2-ext-current" class="fw-bold fs-5 text-info">-- A</span>
+                        <small class="text-muted ms-3">INA238 &bull; mux ch.6</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Autonomous Cutting (Robot Pi only) -->
+        {% if role == 'robot_pi' %}
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Autonomous Cutting</h5>
+                        <div class="row g-2 align-items-center mb-2">
+                            <div class="col-auto fw-semibold" style="width:3rem;">CS1</div>
+                            <div class="col-auto">
+                                <button class="btn btn-sm btn-success" onclick="startAutocut(1)">Start</button>
+                            </div>
+                            <div class="col-auto">
+                                <button class="btn btn-sm btn-danger" onclick="stopAutocut(1)">Stop</button>
+                            </div>
+                            <div class="col-auto">
+                                <span id="autocut-cs1-status" class="badge bg-secondary">Idle</span>
+                            </div>
+                        </div>
+                        <div class="row g-2 align-items-center mb-2">
+                            <div class="col-auto fw-semibold" style="width:3rem;">CS2</div>
+                            <div class="col-auto">
+                                <button class="btn btn-sm btn-success" onclick="startAutocut(2)">Start</button>
+                            </div>
+                            <div class="col-auto">
+                                <button class="btn btn-sm btn-danger" onclick="stopAutocut(2)">Stop</button>
+                            </div>
+                            <div class="col-auto">
+                                <span id="autocut-cs2-status" class="badge bg-secondary">Idle</span>
+                            </div>
+                        </div>
+                        <small class="text-muted">Ensure chainsaw is positioned before starting</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Controller Input Display (Base Pi only) -->
         {% if role == 'base_pi' %}
         <div class="row mb-3">

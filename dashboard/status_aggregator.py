@@ -174,9 +174,13 @@ def _collect_robot_status() -> Dict:
         if 'barometer' in log_status:
             status['sensors']['barometer'] = log_status['barometer']
 
-        # Extract motor currents from logs
-        if 'motor_currents' in log_status:
-            status['actuators']['motor_currents'] = log_status['motor_currents']
+        # Extract motor 1 external current sensor reading from logs
+        if 'motor1_current' in log_status:
+            status['actuators']['motor1_current'] = log_status['motor1_current']
+
+        # Extract motor 2 external current sensor reading from logs
+        if 'motor2_current' in log_status:
+            status['actuators']['motor2_current'] = log_status['motor2_current']
 
         # Extract video stats from logs
         if 'video' in log_status:
@@ -332,6 +336,11 @@ def _collect_base_status() -> Dict:
             status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
         if 'barometer' in log_status:
             status['sensors']['barometer'] = log_status['barometer']
+
+        if 'motor1_current' in log_status:
+            status['actuators']['motor1_current'] = log_status['motor1_current']
+        if 'motor2_current' in log_status:
+            status['actuators']['motor2_current'] = log_status['motor2_current']
     else:
         _unknown = {'state': 'unknown'}
         status['connections'] = {
@@ -379,53 +388,8 @@ def _add_direct_robot_data(status: Dict):
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
 
-        # Try importing video_capture for stats
-        try:
-            from robot_pi import video_capture
-            video_stats = video_capture.get_stats()
-            frames_sent = video_stats.get('frames_sent', 0)
-            frames_dropped = video_stats.get('frames_dropped', 0)
-            drop_rate = video_stats.get('drop_rate', 0.0)
-            video_active = frames_sent > 0
-
-            status['video'] = {
-                'frames_sent': frames_sent,
-                'frames_dropped': frames_dropped,
-                'drop_rate': drop_rate,
-                'camera_errors': video_stats.get('camera_errors', 0),
-                'active_camera': video_stats.get('active_camera_id', 0),
-            }
-
-            # Update connections and data_flow with video info
-            status['connections']['video'] = {
-                'state': 'connected' if video_active else 'disconnected',
-                'direction': 'tx',
-            }
-            status['data_flow']['video_tx'] = {
-                'connected': video_active,
-                'frames_sent': frames_sent,
-                'frames_dropped': frames_dropped,
-                'drop_rate': drop_rate,
-            }
-        except ImportError as e:
-            logger.debug(f"Cannot import video_capture: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to get video stats: {e}")
-
-        # Try importing actuator_controller for motor current data ONLY.
-        # DO NOT read E-STOP from this - the dashboard's ActuatorController
-        # is a separate instance from the bridge and does not share E-STOP state.
-        try:
-            from robot_pi import actuator_controller
-            motor_currents = actuator_controller.get_motor_currents()
-
-            status['actuators'] = {
-                'motor_currents': motor_currents,
-            }
-        except ImportError as e:
-            logger.debug(f"Cannot import actuator_controller: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to get actuator data: {e}")
+        # Video stats and motor currents are extracted from logs in
+        # _collect_robot_status() and do not need direct module inspection.
 
         # Note: Sensor data is extracted from logs in _collect_robot_status()
         # not here, to avoid conflicts with the bridge's sensor reader
