@@ -291,8 +291,8 @@ class CommandExecutor:
             # Excluded from timeout:
             #   - Motor 2, 3: Chainsaw up/down (have explicit stop on release)
             #   - Motor 4, 5: Chainsaw on/off (toggle, user controls)
-            #   - Motor 6: Traverse (has explicit stop on release)
-            #   - Motor 7: Hoist (has explicit stop on release)
+            #   - Motor 6: Hoist (has explicit stop on release)
+            #   - Motor 7: Traverse (has explicit stop on release)
             for motor_id in range(2):  # Only motors 0 and 1
                 self.actuator_controller.set_motor_speed(motor_id, 0)
         except Exception as e:
@@ -671,15 +671,15 @@ class CommandExecutor:
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 4, soft-stop)")
                         self._cs2_ramp.set_target(0)
 
-                # Dpad Down button (index 11): Brake + Descent (Motor 7 forward - direction swapped)
+                # Dpad Down button (index 11): Brake + Descent (Motor 6 forward - direction swapped)
                 elif index == 11:
                     if value > 0:
-                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 7 forward)")
+                        logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 6 forward)")
                         self.actuator_controller.set_servo_position(0.0056)  # 1° engage
-                        self.actuator_controller.set_motor_speed(7, 400)  # 50% forward (descend - direction swapped)
+                        self.actuator_controller.set_motor_speed(6, 400)  # 50% forward (descend - direction swapped)
                     else:
-                        logger.info("Dpad Down: Brake RELEASE (servo to 60°) + Motor 7 STOP")
-                        self.actuator_controller.set_motor_speed(7, 0)  # Stop motor first
+                        logger.info("Dpad Down: Brake RELEASE (servo to 60°) + Motor 6 STOP")
+                        self.actuator_controller.set_motor_speed(6, 0)  # Stop motor first
                         self.actuator_controller.set_servo_position(0.3333)  # 60° release
 
         except (ValueError, TypeError) as e:
@@ -787,7 +787,7 @@ class CommandExecutor:
         """
         Handle hoist/climb up command.
 
-        Motor mapping: Motor 7 (up only, down is handled by brake_command)
+        Motor mapping: Motor 6 (up only, down is handled by brake_command)
 
         Args:
             data: Command data with direction (up/stop)
@@ -799,17 +799,17 @@ class CommandExecutor:
         direction = data.get('direction', 'stop')
 
         if direction == 'up':
-            logger.info("Hoist UP: Motor 7 backward")
-            self.actuator_controller.set_motor_speed(7, -400)  # 50% backward (direction swapped)
+            logger.info("Hoist UP: Motor 6 backward")
+            self.actuator_controller.set_motor_speed(6, -400)  # 50% backward (direction swapped)
         else:  # stop
-            logger.info("Hoist STOP: Motor 7")
-            self.actuator_controller.set_motor_speed(7, 0)
+            logger.info("Hoist STOP: Motor 6")
+            self.actuator_controller.set_motor_speed(6, 0)
 
     def _handle_traverse_command(self, data: Dict[str, Any]):
         """
         Handle traverse left/right command.
 
-        Motor mapping: Motor 6
+        Motor mapping: Motor 7
 
         Args:
             data: Command data with direction (left/right/stop)
@@ -821,22 +821,22 @@ class CommandExecutor:
         direction = data.get('direction', 'stop')
 
         if direction == 'left':
-            logger.info("Traverse LEFT: Motor 6 forward")
-            self.actuator_controller.set_motor_speed(6, 400)  # 50% forward
+            logger.info("Traverse LEFT: Motor 7 forward")
+            self.actuator_controller.set_motor_speed(7, 400)  # 50% forward
         elif direction == 'right':
-            logger.info("Traverse RIGHT: Motor 6 backward")
-            self.actuator_controller.set_motor_speed(6, -400)  # 50% backward
+            logger.info("Traverse RIGHT: Motor 7 backward")
+            self.actuator_controller.set_motor_speed(7, -400)  # 50% backward
         else:  # stop
-            logger.info("Traverse STOP: Motor 6")
-            self.actuator_controller.set_motor_speed(6, 0)
+            logger.info("Traverse STOP: Motor 7")
+            self.actuator_controller.set_motor_speed(7, 0)
 
     def _handle_brake_command(self, data: Dict[str, Any]):
         """
         Handle brake engage/release command (servo + descent motor control).
 
         Servo position:
-        - engage: 1 degree (position 0.0056) + Motor 7 backwards (descend)
-        - release: 60 degrees (position 0.3333) + Motor 7 stop
+        - engage: 1 degree (position 0.0056) + Motor 6 backwards (descend)
+        - release: 60 degrees (position 0.3333) + Motor 6 stop
 
         Args:
             data: Command data with action (engage/release)
@@ -849,15 +849,15 @@ class CommandExecutor:
 
         if action == 'engage':
             # 1 degree = 1/180 = 0.0056 position
-            logger.info("Brake ENGAGE: Servo to 1° + Descent (Motor 7 forward)")
+            logger.info("Brake ENGAGE: Servo to 1° + Descent (Motor 6 forward)")
             success = self.actuator_controller.set_servo_position(0.0056)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
-            self.actuator_controller.set_motor_speed(7, 400)  # 50% forward (descend - direction swapped)
+            self.actuator_controller.set_motor_speed(6, 400)  # 50% forward (descend - direction swapped)
         else:  # release
             # 60 degrees = 60/180 = 0.3333 position
-            logger.info("Brake RELEASE: Motor 7 STOP + Servo to 60°")
-            self.actuator_controller.set_motor_speed(7, 0)  # Stop motor first
+            logger.info("Brake RELEASE: Motor 6 STOP + Servo to 60°")
+            self.actuator_controller.set_motor_speed(6, 0)  # Stop motor first
             success = self.actuator_controller.set_servo_position(0.3333)
             if not success:
                 logger.warning("Brake RELEASE failed - servo command returned False")
