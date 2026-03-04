@@ -60,7 +60,7 @@ USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'true').lower() == 'true'
 I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
 IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '7'))  # BNO055 on channel 7 (daisy-chained with BMP581)
 BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '7'))  # BMP581 on channel 7 (daisy-chained with BNO055)
-MOTOR1_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR1_CURRENT_MUX_CHANNEL', '5'))  # INA238 on channel 5
+MOTOR1_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR1_CURRENT_MUX_CHANNEL', '2'))  # INA238 on channel 2
 MOTOR1_CURRENT_SENSOR_ADDRESS = int(os.getenv('MOTOR1_CURRENT_SENSOR_ADDRESS', '0x40'), 16)  # INA238 default
 MOTOR2_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR2_CURRENT_MUX_CHANNEL', '6'))  # INA238 on channel 6
 MOTOR2_CURRENT_SENSOR_ADDRESS = int(os.getenv('MOTOR2_CURRENT_SENSOR_ADDRESS', '0x40'), 16)  # INA238 default

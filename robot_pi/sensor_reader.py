@@ -255,6 +255,9 @@ class SensorReader:
         # Initialize INA238 sensors via smbus2 (independent of busio availability).
         # smbus2 uses Linux ioctl() directly — immune to busio try_lock() spin-loop
         # that motor EMI causes when using the adafruit TCA9548A channel proxy.
+        # Brief settle delay after busio BNO055/BMP581 init to prevent [Errno 5]
+        # on the first smbus2 mux write when the bus is still in use.
+        time.sleep(0.15)
         if SMBUS2_AVAILABLE:
             try:
                 self._smbus_m1 = smbus2.SMBus(self.i2c_bus)
@@ -454,6 +457,9 @@ class SensorReader:
     def _reinit_motor1_sensor(self):
         """Re-initialize INA238 motor 1 via smbus2 after persistent I/O errors."""
         logger.warning("INA238 (motor 1): attempting smbus2 re-initialization")
+        if not self._i2c_lock.acquire(timeout=0.3):
+            logger.warning("INA238 (motor 1): reinit skipped — I2C bus busy")
+            return
         try:
             if self._smbus_m1:
                 try:
@@ -470,12 +476,17 @@ class SensorReader:
             logger.info("INA238 (motor 1): smbus2 re-initialized successfully")
         except Exception as e:
             logger.warning(f"INA238 (motor 1): smbus2 re-initialization failed: {e}")
+            self._smbus_m1 = None
         finally:
             self._current_error_count = 0
+            self._i2c_lock.release()
 
     def _reinit_motor2_sensor(self):
         """Re-initialize INA238 motor 2 via smbus2 after persistent I/O errors."""
         logger.warning("INA238 (motor 2): attempting smbus2 re-initialization")
+        if not self._i2c_lock.acquire(timeout=0.3):
+            logger.warning("INA238 (motor 2): reinit skipped — I2C bus busy")
+            return
         try:
             if self._smbus_m2:
                 try:
@@ -492,8 +503,10 @@ class SensorReader:
             logger.info("INA238 (motor 2): smbus2 re-initialized successfully")
         except Exception as e:
             logger.warning(f"INA238 (motor 2): smbus2 re-initialization failed: {e}")
+            self._smbus_m2 = None
         finally:
             self._motor2_error_count = 0
+            self._i2c_lock.release()
 
     def _read_motor1_current(self) -> tuple:
         """Read motor 1 current from INA238 via smbus2 (direct kernel ioctl).
@@ -639,6 +652,14 @@ class SensorReader:
         """
         logger.info("Motor 1 current thread started (20 Hz)")
         while self.running:
+            # If smbus handle was never initialized (init failed at startup),
+            # retry every 5s so the sensor comes up without a restart.
+            if self._smbus_m1 is None:
+                if time.time() - self._ina238_m1_last_reinit_time >= 5.0:
+                    self._ina238_m1_last_reinit_time = time.time()
+                    self._reinit_motor1_sensor()
+                time.sleep(0.05)
+                continue
             current, ok = self._read_motor1_current()
             with self.data_lock:
                 if ok:
@@ -668,6 +689,12 @@ class SensorReader:
         """
         logger.info("Motor 2 current thread started (20 Hz)")
         while self.running:
+            if self._smbus_m2 is None:
+                if time.time() - self._ina238_m2_last_reinit_time >= 5.0:
+                    self._ina238_m2_last_reinit_time = time.time()
+                    self._reinit_motor2_sensor()
+                time.sleep(0.05)
+                continue
             current, ok = self._read_motor2_current()
             with self.data_lock:
                 if ok:
