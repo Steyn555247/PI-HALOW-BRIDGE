@@ -144,6 +144,8 @@ class SensorReader:
         self.latest_baro_data: Dict[str, float] = {}
         self.latest_motor1_current: float = 0.0
         self.latest_motor2_current: float = 0.0
+        self.latest_motor1_current_timestamp: float = 0.0
+        self.latest_motor2_current_timestamp: float = 0.0
         self.data_lock = threading.Lock()
 
         # Serialise all I2C/multiplexer access across threads to prevent
@@ -641,6 +643,7 @@ class SensorReader:
             with self.data_lock:
                 if ok:
                     self.latest_motor1_current = current
+                    self.latest_motor1_current_timestamp = time.time()
                     self._last_current_success_time = time.time()
                 # Always write last known good value — failed reads use previous
                 write_value = self.latest_motor1_current
@@ -669,6 +672,7 @@ class SensorReader:
             with self.data_lock:
                 if ok:
                     self.latest_motor2_current = current
+                    self.latest_motor2_current_timestamp = time.time()
                     self._last_motor2_success_time = time.time()
                 write_value = self.latest_motor2_current
             try:
@@ -702,6 +706,26 @@ class SensorReader:
         """
         with self.data_lock:
             return self.latest_motor2_current
+
+    def get_motor1_current_with_timestamp(self) -> tuple[float, float]:
+        """Get motor 1 current and timestamp.
+
+        Returns: (current_amps, timestamp) tuple
+        The timestamp is when the reading was last successfully updated.
+        Used for staleness detection in autonomous cutting.
+        """
+        with self.data_lock:
+            return (self.latest_motor1_current, self.latest_motor1_current_timestamp)
+
+    def get_motor2_current_with_timestamp(self) -> tuple[float, float]:
+        """Get motor 2 current and timestamp.
+
+        Returns: (current_amps, timestamp) tuple
+        The timestamp is when the reading was last successfully updated.
+        Used for staleness detection in autonomous cutting.
+        """
+        with self.data_lock:
+            return (self.latest_motor2_current, self.latest_motor2_current_timestamp)
 
     def get_imu_data(self) -> Dict[str, float]:
         """Get latest IMU data"""

@@ -133,22 +133,38 @@ IS_WINDOWS = platform.system() == 'Windows'
 IS_RASPBERRY_PI = os.path.exists('/proc/device-tree/model')
 
 # Autonomous Cutting Configuration (PID-controlled feed motor)
-# CS2 defaults — target current setpoint and PID gains
-AUTOCUT_TARGET_CURRENT_A      = float(os.getenv('AUTOCUT_TARGET_CURRENT_A', '3.3'))   # PID setpoint (A)
+#
+# ADAPTIVE BASELINE SYSTEM:
+# The autonomous cutter measures the average free-spin current for 5 seconds
+# before starting each cut. This baseline accounts for blade wear, motor variance,
+# battery voltage, and temperature. The thresholds below are OFFSETS added on top
+# of the measured baseline.
+#
+# Example: If baseline measures 2.0A and AUTOCUT_TARGET_CURRENT_A = 1.5,
+#          the actual PID target will be 2.0 + 1.5 = 3.5A
+#
+# TYPICAL CURRENT RANGES (from field testing):
+#   Free spin (no load):        ~1.8-2.0A  (measured as baseline)
+#   Light contact (tip):        ~2.1-2.5A  (baseline + 0.1-0.5A)
+#   Cutting (blade in wood):    ~3.0-3.5A  (baseline + 1.0-1.5A)
+#   Heavy load (resistance):    ~3.5-4.0A  (baseline + 1.5-2.0A)
+#
+# STANDARDIZED OFFSETS (CS1 & CS2):
+# These values work for both chainsaws with the adaptive baseline system
+AUTOCUT_TARGET_CURRENT_A      = float(os.getenv('AUTOCUT_TARGET_CURRENT_A', '1.5'))   # PID target OFFSET above baseline (A) → ~3.5A absolute
 AUTOCUT_PID_KP                = float(os.getenv('AUTOCUT_PID_KP', '80.0'))             # Proportional gain
 AUTOCUT_PID_KI                = float(os.getenv('AUTOCUT_PID_KI', '20.0'))             # Integral gain
 AUTOCUT_PID_KD                = float(os.getenv('AUTOCUT_PID_KD', '0.0'))              # Derivative gain
 AUTOCUT_MAX_SPEED             = int(os.getenv('AUTOCUT_MAX_SPEED', '150'))             # Max feed speed during PID cutting (0–800)
 AUTOCUT_APPROACH_SPEED        = int(os.getenv('AUTOCUT_APPROACH_SPEED', '600'))        # Feed speed during pre-contact approach (0–800)
-AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '2.6'))     # Breakthrough: current below this (A)
-# CS1-specific PID params
-# Normal free-spin current: ~1.8–2.0A; contact/cutting: higher; breakthrough: drops back to free-spin
-# idle_current must be ABOVE free-spin so pre-contact approach phase activates correctly
-CS1_AUTOCUT_TARGET_CURRENT_A  = float(os.getenv('CS1_AUTOCUT_TARGET_CURRENT_A', '3.5'))    # CS1 PID setpoint (A) — tune to desired cutting load
+AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '1.0'))     # Contact/breakthrough OFFSET above baseline (A) → ~3.0A absolute
+# CS1-specific overrides (if needed for different blade characteristics)
+# Currently standardized to match CS2 - uncomment and modify if CS1 needs different tuning
+CS1_AUTOCUT_TARGET_CURRENT_A  = float(os.getenv('CS1_AUTOCUT_TARGET_CURRENT_A', '1.5'))    # CS1 PID target OFFSET above baseline (A)
 CS1_AUTOCUT_PID_KP            = float(os.getenv('CS1_AUTOCUT_PID_KP', '80.0'))             # CS1 proportional gain
 CS1_AUTOCUT_PID_KI            = float(os.getenv('CS1_AUTOCUT_PID_KI', '20.0'))             # CS1 integral gain
 CS1_AUTOCUT_PID_KD            = float(os.getenv('CS1_AUTOCUT_PID_KD', '0.0'))              # CS1 derivative gain
-CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '2.3'))      # CS1 contact/breakthrough threshold (A) — must exceed free-spin ~2.0A
+CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '1.0'))      # CS1 contact/breakthrough OFFSET above baseline (A)
 CS1_AUTOCUT_APPROACH_SPEED    = int(os.getenv('CS1_AUTOCUT_APPROACH_SPEED', '600'))        # CS1 pre-contact approach speed (0–800)
 # Timing
 AUTOCUT_BREAKTHROUGH_CONFIRM_S = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '1.0'))  # Seconds at idle to confirm cut

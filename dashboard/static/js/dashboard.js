@@ -11,6 +11,19 @@ let socket = null;
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 10;
 
+// ============================================================================
+// Current Graph (Chart.js)
+// ============================================================================
+
+let currentChart = null;
+let currentDataBuffer = {
+    motor1: [],
+    motor2: [],
+    timestamps: []
+};
+let isPaused = false;
+const MAX_DATA_POINTS = 600;  // 30 seconds at 20 Hz
+
 // Connect to WebSocket
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -434,6 +447,9 @@ function _renderMotor1Current(current) {
     } else {
         el.style.color = '#0dcaf0';  // cyan  — idle / no load
     }
+
+    // Add to graph
+    addCurrentDataPoint('motor1', current);
 }
 
 // Slow fallback: called from the 1 Hz status_update event
@@ -463,6 +479,9 @@ function _renderMotor2Current(current) {
     } else {
         el.style.color = '#0dcaf0';  // cyan  — idle / no load
     }
+
+    // Add to graph
+    addCurrentDataPoint('motor2', current);
 }
 
 // Slow fallback: called from the 1 Hz status_update event
@@ -706,11 +725,168 @@ function engageEstop() {
 }
 
 // ============================================================================
+// Current Graph Functions
+// ============================================================================
+
+function initCurrentChart() {
+    const ctx = document.getElementById('currentChart');
+    if (!ctx) {
+        console.warn('Current chart canvas not found');
+        return;
+    }
+
+    currentChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Motor 1 Current (A)',
+                    data: [],
+                    borderColor: '#0dcaf0',
+                    backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1
+                },
+                {
+                    label: 'Motor 2 Current (A)',
+                    data: [],
+                    borderColor: '#6610f2',
+                    backgroundColor: 'rgba(102, 16, 242, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            animation: false,
+            scales: {
+                x: {
+                    type: 'linear',
+                    position: 'bottom',
+                    title: {
+                        display: true,
+                        text: 'Time (seconds ago)'
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return -value;
+                        }
+                    },
+                    reverse: true
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Current (A)'
+                    },
+                    suggestedMax: 1.0
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    enabled: true,
+                    mode: 'index',
+                    intersect: false
+                }
+            },
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            }
+        }
+    });
+}
+
+function addCurrentDataPoint(motor, current) {
+    if (!currentChart || isPaused) return;
+
+    const now = Date.now();
+
+    if (motor === 'motor1') {
+        currentDataBuffer.motor1.push({ time: now, value: current });
+    } else if (motor === 'motor2') {
+        currentDataBuffer.motor2.push({ time: now, value: current });
+    }
+
+    // Trim old data points (keep last MAX_DATA_POINTS)
+    if (currentDataBuffer.motor1.length > MAX_DATA_POINTS) {
+        currentDataBuffer.motor1.shift();
+    }
+    if (currentDataBuffer.motor2.length > MAX_DATA_POINTS) {
+        currentDataBuffer.motor2.shift();
+    }
+
+    updateCurrentChart();
+}
+
+function updateCurrentChart() {
+    if (!currentChart) return;
+
+    const now = Date.now();
+
+    // Create unified timestamp array (all unique timestamps from both motors)
+    const allTimestamps = new Set();
+    currentDataBuffer.motor1.forEach(d => allTimestamps.add(d.time));
+    currentDataBuffer.motor2.forEach(d => allTimestamps.add(d.time));
+    const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+
+    // Convert to seconds relative to now
+    const labels = sortedTimestamps.map(t => (t - now) / 1000);
+
+    // Create data arrays (interpolate missing values as null)
+    const motor1Map = new Map(currentDataBuffer.motor1.map(d => [d.time, d.value]));
+    const motor2Map = new Map(currentDataBuffer.motor2.map(d => [d.time, d.value]));
+
+    const motor1Data = sortedTimestamps.map(t => motor1Map.get(t) ?? null);
+    const motor2Data = sortedTimestamps.map(t => motor2Map.get(t) ?? null);
+
+    currentChart.data.labels = labels;
+    currentChart.data.datasets[0].data = motor1Data;
+    currentChart.data.datasets[1].data = motor2Data;
+    currentChart.update('none');  // 'none' disables animation for smoother real-time updates
+}
+
+function clearCurrentHistory() {
+    currentDataBuffer.motor1 = [];
+    currentDataBuffer.motor2 = [];
+    if (currentChart) {
+        currentChart.data.labels = [];
+        currentChart.data.datasets[0].data = [];
+        currentChart.data.datasets[1].data = [];
+        currentChart.update();
+    }
+}
+
+function togglePause() {
+    isPaused = !isPaused;
+    const btn = document.getElementById('pauseBtn');
+    if (btn) {
+        btn.textContent = isPaused ? 'Resume' : 'Pause';
+        btn.classList.toggle('btn-outline-success', isPaused);
+        btn.classList.toggle('btn-outline-secondary', !isPaused);
+    }
+}
+
+// ============================================================================
 // Initialize
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Connectivity Dashboard initializing...');
+
+    // Initialize current chart
+    initCurrentChart();
 
     // Connect WebSocket for real-time updates
     connectWebSocket();

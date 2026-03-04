@@ -232,6 +232,25 @@
             </div>
         </div>
 
+        <!-- Motor Current Graph (Real-time) -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Motor Current History (20 Hz)</h5>
+                        <canvas id="currentChart" height="80"></canvas>
+                        <div class="mt-2 d-flex justify-content-between align-items-center">
+                            <small class="text-muted">Real-time current monitoring from INA238 sensors</small>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="clearCurrentHistory()">Clear History</button>
+                                <button class="btn btn-sm btn-outline-secondary" id="pauseBtn" onclick="togglePause()">Pause</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Autonomous Cutting (Robot Pi only) -->
         {% if role == 'robot_pi' %}
         <div class="row mb-3">
@@ -573,6 +592,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <!-- Pass role to JS -->
     <script>window.DASHBOARD_ROLE = '{{ role }}';</script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ range(1, 9999999) | random }}"></script>
