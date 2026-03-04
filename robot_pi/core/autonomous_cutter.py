@@ -1,12 +1,12 @@
 """
 Autonomous Chainsaw Cutter
 
-State machine that autonomously feeds a chainsaw into a branch,
-backs off when current is too high, and stops when it detects
-the branch is cut (current drops suddenly after peaking).
+PID controller that continuously regulates the feed motor speed to maintain
+a target current draw. Replaces the old bang-bang ADVANCING/BACKING_OFF
+state machine with smooth, linear descent into the branch.
 
 Chainsaw ID mapping:
-  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (-down/+retract), current = sensor 1 (mux ch.0)
+  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (+down/-retract), current = sensor 1 (mux ch.5)
   CS2: on/off = Motor 4 (-speed), feed = Motor 3 (+down/-retract), current = sensor 2 (mux ch.6)
 """
 
@@ -19,22 +19,67 @@ logger = logging.getLogger(__name__)
 
 
 class CuttingState(Enum):
-    ADVANCING   = "advancing"
-    BACKING_OFF = "backing_off"
-    COMPLETE    = "complete"
+    CUTTING  = "cutting"
+    COMPLETE = "complete"
+
+
+class _PIDController:
+    """
+    Discrete PID controller with anti-windup and derivative on measurement.
+
+    Anti-windup: back-calculates integral correction when output is clamped.
+    Derivative on measurement (not error) avoids derivative kick on setpoint changes.
+    """
+
+    def __init__(self, kp: float, ki: float, kd: float,
+                 output_min: float, output_max: float, dt: float):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_min = output_min
+        self.output_max = output_max
+        self.dt = dt
+        self._integral = 0.0
+        self._prev_measurement = None
+
+    def reset(self):
+        self._integral = 0.0
+        self._prev_measurement = None
+
+    def compute(self, setpoint: float, measurement: float) -> float:
+        error = setpoint - measurement
+
+        # Derivative on measurement (not error) to avoid derivative kick
+        if self._prev_measurement is None:
+            derivative = 0.0
+        else:
+            derivative = -(measurement - self._prev_measurement) / self.dt
+        self._prev_measurement = measurement
+
+        # Unclamped output
+        output = self.kp * error + self._integral + self.kd * derivative
+
+        # Clamp
+        output_clamped = max(self.output_min, min(self.output_max, output))
+
+        # Anti-windup: integrate only the portion that didn't saturate
+        self._integral += self.ki * error * self.dt - (output - output_clamped)
+
+        return output_clamped
 
 
 class AutonomousCutter:
     """
     Autonomous chainsaw cutting controller (one chainsaw at a time).
 
-    Manages on/off and feed motors to cut through a branch:
-    - ADVANCING:   feeds chainsaw down into branch at low speed
-    - BACKING_OFF: reverses quickly when current spikes (wood resistance)
-    - COMPLETE:    breakthrough detected — stops all motors and exits
+    Uses a PID controller to regulate feed motor speed, targeting a
+    desired current draw as the blade cuts through the branch.
 
-    Breakthrough is only triggered AFTER current has peaked at least once
-    (prevents false trigger before the blade contacts wood).
+    Breakthrough detection:
+    - has_peaked = True once current rises above idle_current (blade contacts wood)
+    - After peaking, if current stays below idle_current for ≥ breakthrough_confirm_s
+      the cut is confirmed (COMPLETE)
+    - Timer resets if current rises back above idle_current mid-confirmation
 
     Thread safety: start()/stop()/is_running() may be called from any thread.
     The control loop runs in its own daemon thread.
@@ -45,27 +90,34 @@ class AutonomousCutter:
         chainsaw_id,
         actuator_controller,
         sensor_reader,
-        high_current,
-        safe_current,
+        target_current,
+        pid_kp,
+        pid_ki,
+        pid_kd,
+        max_speed,
         idle_current,
-        advance_speed,
-        backoff_speed,
         breakthrough_confirm_s,
         loop_interval_s,
         onoff_speed=720,
         set_blade_speed=None,
         on_complete=None,
+        approach_speed=None,
+        contact_confirm_reads=3,
+        max_cut_duration_s=45.0,
     ):
         """
         Args:
             chainsaw_id:             1 or 2
             actuator_controller:     ActuatorController instance
-            sensor_reader:           SensorReader instance (reads latest_current_data)
-            high_current:            Back off above this current (A)
-            safe_current:            Re-advance below this current (A)
-            idle_current:            Breakthrough threshold (A)
-            advance_speed:           Feed motor advance speed (0–800)
-            backoff_speed:           Feed motor backoff speed (0–800)
+            sensor_reader:           SensorReader instance
+            target_current:          PID setpoint — target current draw (A)
+            pid_kp:                  Proportional gain
+            pid_ki:                  Integral gain
+            pid_kd:                  Derivative gain
+            max_speed:               Max feed speed during PID cutting (0–800)
+            idle_current:            Contact/breakthrough threshold — current above this means
+                                     blade is in wood; current below this after peaking = breakthrough.
+                                     Must be set ABOVE free-spin current.
             breakthrough_confirm_s:  Time current must stay below idle to confirm cut (s)
             loop_interval_s:         Control loop sleep interval (s)
             onoff_speed:             On/off motor speed (0–800), default 720 (90%)
@@ -74,15 +126,27 @@ class AutonomousCutter:
                                      keepalive is handled externally by that callable.
                                      Falls back to direct set_motor_speed if None.
             on_complete:             Optional callback(chainsaw_id) on breakthrough
+            approach_speed:          Fixed descent speed before first wood contact (0–800).
+                                     Defaults to max_speed if not set. Higher than max_speed
+                                     is fine — it only applies before PID engages.
+            contact_confirm_reads:   Number of consecutive reads above idle_current required
+                                     to confirm blade contact (filters EMI spikes). Default 3.
+            max_cut_duration_s:      Safety fallback: if the cut takes longer than this many
+                                     seconds after first contact, retract automatically.
+                                     Default 45s.
         """
         self.chainsaw_id          = chainsaw_id
         self.actuator_controller  = actuator_controller
         self.sensor_reader        = sensor_reader
-        self.high_current         = high_current
-        self.safe_current         = safe_current
-        self.idle_current         = idle_current
-        self.advance_speed        = advance_speed
-        self.backoff_speed        = backoff_speed
+        self.target_current       = target_current
+        self.pid_kp               = pid_kp
+        self.pid_ki               = pid_ki
+        self.pid_kd               = pid_kd
+        self.max_speed            = max_speed
+        self.approach_speed          = approach_speed if approach_speed is not None else max_speed
+        self.idle_current            = idle_current
+        self.contact_confirm_reads   = contact_confirm_reads
+        self.max_cut_duration_s      = max_cut_duration_s
         self.breakthrough_confirm_s = breakthrough_confirm_s
         self.loop_interval_s      = loop_interval_s
         self.onoff_speed          = onoff_speed
@@ -116,46 +180,10 @@ class AutonomousCutter:
         else:
             self.actuator_controller.set_motor_speed(self.onoff_motor, speed)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def start(self):
-        """Turn on the chainsaw blade (via soft-start ramp) and launch the autonomous control loop."""
-        logger.info(
-            f"AutonomousCutter CS{self.chainsaw_id}: starting "
-            f"(high={self.high_current}A safe={self.safe_current}A "
-            f"idle={self.idle_current}A advance={self.advance_speed} "
-            f"backoff={self.backoff_speed})"
-        )
-        # Turn on chainsaw on/off motor via soft-start ramp (or direct if no ramp provided)
-        self._set_onoff(-self.onoff_speed)
-
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._control_loop,
-            daemon=True,
-            name=f"autocut-cs{self.chainsaw_id}",
-        )
-        self._thread.start()
-
-    def stop(self):
-        """Signal the control loop to exit and immediately stop all motors."""
-        logger.info(f"AutonomousCutter CS{self.chainsaw_id}: stop requested")
-        self._running = False
-        # Stop motors immediately — don't wait for the thread
-        self._stop_motors()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
-
-    def is_running(self) -> bool:
-        """Return True while the control loop is active."""
-        return self._running
-
     def _get_current(self) -> float:
         """
         Read current (A) from the external INA238 sensor via SensorReader.
-        CS1 uses sensor 1 (mux ch.0); CS2 uses sensor 2 (mux ch.6).
+        CS1 uses sensor 1 (mux ch.5); CS2 uses sensor 2 (mux ch.6).
         Returns 0.0 on error.
         """
         try:
@@ -171,15 +199,30 @@ class AutonomousCutter:
 
     def _set_feed(self, down: bool, speed: int):
         """
-        Drive the feed motor.
+        Drive the feed motor at a fixed speed.
 
-        CS1 Motor 2: -speed = forward/down (advance),  +speed = retract
-        CS2 Motor 3: +speed = down (advance),          -speed = retract
+        CS1 Motor 2: +speed = forward/down (advance),  -speed = retract
+        CS2 Motor 3: -speed = down (advance),          +speed = retract (direction swapped)
         """
         if self.chainsaw_id == 1:
-            motor_speed = -speed if down else speed
-        else:
             motor_speed = speed if down else -speed
+        else:
+            motor_speed = -speed if down else speed
+        self.actuator_controller.set_motor_speed(self.feed_motor, motor_speed)
+
+    def _set_feed_pid(self, pid_output: float):
+        """
+        Convert signed PID output to motor command respecting CS1/CS2 polarity.
+
+        Positive pid_output = advance/down; negative = backoff/up.
+        CS1 Motor 2: +speed = forward/down,  -speed = retract
+        CS2 Motor 3: -speed = down,          +speed = retract (direction swapped)
+        """
+        speed = int(round(pid_output))
+        if self.chainsaw_id == 1:
+            motor_speed = speed
+        else:
+            motor_speed = -speed
         self.actuator_controller.set_motor_speed(self.feed_motor, motor_speed)
 
     def _stop_motors(self):
@@ -198,48 +241,85 @@ class AutonomousCutter:
             )
 
     # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def start(self):
+        """Turn on the chainsaw blade (via soft-start ramp) and launch the autonomous control loop."""
+        logger.info(
+            f"AutonomousCutter CS{self.chainsaw_id}: starting "
+            f"(target={self.target_current}A idle={self.idle_current}A "
+            f"kp={self.pid_kp} ki={self.pid_ki} kd={self.pid_kd} "
+            f"max_speed={self.max_speed} approach_speed={self.approach_speed} "
+            f"contact_confirm={self.contact_confirm_reads} "
+            f"max_cut={self.max_cut_duration_s}s)"
+        )
+        onoff_sign = 1 if self.chainsaw_id == 2 else -1
+        self._set_onoff(onoff_sign * self.onoff_speed)
+
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._control_loop,
+            daemon=True,
+            name=f"autocut-cs{self.chainsaw_id}",
+        )
+        self._thread.start()
+
+    def stop(self):
+        """Signal the control loop to exit and immediately stop all motors."""
+        logger.info(f"AutonomousCutter CS{self.chainsaw_id}: stop requested")
+        self._running = False
+        self._stop_motors()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+    def is_running(self) -> bool:
+        """Return True while the control loop is active."""
+        return self._running
+
+    # ------------------------------------------------------------------
     # Control loop
     # ------------------------------------------------------------------
 
     def _control_loop(self):
         """
-        Autonomous cutting state machine — runs in its own daemon thread.
+        PID-controlled autonomous cutting loop — runs in its own daemon thread.
 
         States
         ------
-        ADVANCING
-          Feed motor moves down at advance_speed.
-          • current > high_current  → BACKING_OFF  (set has_peaked=True)
-          • has_peaked and current < idle_current for ≥ breakthrough_confirm_s → COMPLETE
-
-        BACKING_OFF
-          Feed motor reverses at backoff_speed.
-          • current < safe_current  → ADVANCING
+        CUTTING
+          PID computes signed feed speed targeting self.target_current.
+          Breakthrough detection active once current has peaked above idle_current.
 
         COMPLETE
-          Clears _running flag; loop exits; motors are stopped.
-          on_complete callback is fired if provided.
+          Retract feed at max_speed; blade stays on; fire on_complete callback.
         """
-        state             = CuttingState.ADVANCING
-        has_peaked        = False   # True once current has exceeded high_current
-        low_since         = None    # When current first dropped below idle_current
-        last_backoff_time = None    # When we last left BACKING_OFF → used for grace period
-        POST_BACKOFF_GRACE_S = 2.0  # Don't allow breakthrough until this many seconds after last backoff
+        state               = CuttingState.CUTTING
+        has_peaked          = False
+        contact_count       = 0       # consecutive reads above idle_current
+        low_since           = None
+        cut_start_time      = None    # set when has_peaked first becomes True
         completed_naturally = False
 
-        logger.info(
-            f"AutonomousCutter CS{self.chainsaw_id}: control loop started"
+        pid = _PIDController(
+            kp=self.pid_kp,
+            ki=self.pid_ki,
+            kd=self.pid_kd,
+            output_min=-self.max_speed,
+            output_max=self.max_speed,
+            dt=self.loop_interval_s,
         )
 
+        logger.info(f"AutonomousCutter CS{self.chainsaw_id}: control loop started")
+
         # Wait for the blade to reach full speed before engaging the feed
-        # motor or monitoring current — avoids a false BACKING_OFF from the
+        # motor or monitoring current — avoids a false reading from the
         # startup current spike.
         STARTUP_DELAY_S = 1.5
         logger.info(
             f"AutonomousCutter CS{self.chainsaw_id}: "
             f"startup delay {STARTUP_DELAY_S}s (blade spin-up)"
         )
-        # Keepalive is handled by ChainsawRamp (10 Hz). Just wait here.
         deadline = time.time() + STARTUP_DELAY_S
         while self._running and time.time() < deadline:
             time.sleep(self.loop_interval_s)
@@ -254,70 +334,89 @@ class AutonomousCutter:
         while self._running:
             current = self._get_current()
 
-            if state == CuttingState.ADVANCING:
-                self._set_feed(down=True, speed=self.advance_speed)
+            if state == CuttingState.CUTTING:
+                if current > self.idle_current:
+                    # Accumulate consecutive reads above idle — need contact_confirm_reads
+                    # to confirm real contact (filters EMI spikes and stale sensor values)
+                    contact_count += 1
+                    low_since = None
 
-                if current > self.high_current:
-                    has_peaked = True
-                    low_since  = None
-                    state      = CuttingState.BACKING_OFF
-                    logger.info(
-                        f"AutonomousCutter CS{self.chainsaw_id}: {current:.2f}A > "
-                        f"{self.high_current}A → BACKING_OFF"
-                    )
+                    if not has_peaked and contact_count >= self.contact_confirm_reads:
+                        has_peaked = True
+                        cut_start_time = time.time()
+                        logger.info(
+                            f"AutonomousCutter CS{self.chainsaw_id}: CONTACT confirmed "
+                            f"after {contact_count} consecutive reads "
+                            f"({current:.3f}A > {self.idle_current}A) — switching to PID"
+                        )
 
-                elif has_peaked and current < self.idle_current:
-                    # Only allow breakthrough detection after the post-backoff grace period.
-                    # This prevents false COMPLETE when the feed re-advances after a backoff
-                    # and is momentarily in air before contacting the wood again.
-                    grace_expired = (
-                        last_backoff_time is None or
-                        time.time() - last_backoff_time >= POST_BACKOFF_GRACE_S
-                    )
-                    if not grace_expired:
-                        # Still in grace period — don't start breakthrough timer
-                        low_since = None
-                    elif low_since is None:
+                    # PID regulates feed speed once contact is confirmed
+                    if has_peaked:
+                        pid_output = pid.compute(self.target_current, current)
+                        self._set_feed_pid(pid_output)
+                        logger.debug(
+                            f"CS{self.chainsaw_id} PID: current={current:.3f}A "
+                            f"error={self.target_current - current:.3f} "
+                            f"output={pid_output:.1f}"
+                        )
+                    else:
+                        # Still in approach — keep descending while waiting to confirm
+                        self._set_feed(down=True, speed=self.approach_speed)
+                        logger.debug(
+                            f"CS{self.chainsaw_id} CONTACT pending: "
+                            f"current={current:.3f}A ({contact_count}/"
+                            f"{self.contact_confirm_reads} reads)"
+                        )
+
+                elif has_peaked:
+                    # Current dropped below idle after contact — potential breakthrough.
+                    # Reset contact count and hold feed at 0.
+                    contact_count = 0
+                    pid.reset()
+                    self._set_feed_pid(0)
+                    if low_since is None:
                         low_since = time.time()
                         logger.debug(
                             f"AutonomousCutter CS{self.chainsaw_id}: potential "
-                            f"breakthrough ({current:.2f}A), confirming…"
+                            f"breakthrough ({current:.3f}A), confirming…"
                         )
                     elif time.time() - low_since >= self.breakthrough_confirm_s:
                         logger.info(
                             f"AutonomousCutter CS{self.chainsaw_id}: BREAKTHROUGH "
-                            f"confirmed ({current:.2f}A for "
+                            f"confirmed ({current:.3f}A for "
                             f"≥{self.breakthrough_confirm_s}s)"
                         )
                         state = CuttingState.COMPLETE
 
                 else:
-                    # Current rose back above idle — reset confirmation timer
-                    if low_since is not None:
-                        logger.debug(
-                            f"AutonomousCutter CS{self.chainsaw_id}: breakthrough "
-                            f"timer reset ({current:.2f}A)"
-                        )
-                    low_since = None
-
-            elif state == CuttingState.BACKING_OFF:
-                self._set_feed(down=False, speed=self.backoff_speed)
-
-                if current < self.safe_current:
-                    state = CuttingState.ADVANCING
-                    last_backoff_time = time.time()  # Start grace period for breakthrough detection
+                    # Pre-contact — descend at approach_speed until blade hits wood.
+                    # Reset contact count (current dipped back below idle mid-approach).
+                    contact_count = 0
+                    self._set_feed(down=True, speed=self.approach_speed)
                     logger.info(
-                        f"AutonomousCutter CS{self.chainsaw_id}: {current:.2f}A < "
-                        f"{self.safe_current}A → ADVANCING (grace period {POST_BACKOFF_GRACE_S}s)"
+                        f"CS{self.chainsaw_id} APPROACH: current={current:.3f}A "
+                        f"(waiting for contact > {self.idle_current}A, "
+                        f"feed speed={self.approach_speed})"
                     )
 
+                # Time-based safety fallback when still in approach/PID cutting
+                if (cut_start_time is not None and
+                        self.max_cut_duration_s > 0 and
+                        state == CuttingState.CUTTING and
+                        time.time() - cut_start_time >= self.max_cut_duration_s):
+                    logger.warning(
+                        f"AutonomousCutter CS{self.chainsaw_id}: MAX CUT DURATION "
+                        f"({self.max_cut_duration_s}s) exceeded — forcing retract"
+                    )
+                    state = CuttingState.COMPLETE
+
             elif state == CuttingState.COMPLETE:
-                # Retract feed slowly — blade (on/off motor) keeps running.
+                # Retract feed — blade (on/off motor) keeps running.
                 # User can stop the blade manually after the cut is done.
-                self._set_feed(down=False, speed=self.advance_speed)
+                self._set_feed(down=False, speed=self.max_speed)
                 logger.info(
                     f"AutonomousCutter CS{self.chainsaw_id}: "
-                    f"COMPLETE — retracting feed at speed {self.advance_speed}, blade stays on"
+                    f"COMPLETE — retracting feed at speed {self.max_speed}, blade stays on"
                 )
                 completed_naturally = True
                 self._running = False   # Causes loop to exit on next iteration check

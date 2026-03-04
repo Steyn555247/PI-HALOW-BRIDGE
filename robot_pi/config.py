@@ -49,9 +49,9 @@ CAMERA_DEVICES = [
 
 # Sensor Configuration (I2C)
 I2C_BUS = int(os.getenv('I2C_BUS', '1'))
-# BNO055 IMU at address 0x28 on multiplexer channel 1
+# BNO055 IMU at address 0x28 on multiplexer channel 7
 BNO055_ADDRESS = int(os.getenv('BNO055_ADDRESS', '0x28'), 16)
-# BMP581 barometer at address 0x47 on multiplexer channel 0
+# BMP581 barometer at address 0x47 on multiplexer channel 7
 BMP581_ADDRESS = int(os.getenv('BMP581_ADDRESS', '0x47'), 16)
 SENSOR_READ_INTERVAL = float(os.getenv('SENSOR_READ_INTERVAL', '0.1'))  # 100ms
 
@@ -60,7 +60,7 @@ USE_I2C_MULTIPLEXER = os.getenv('USE_I2C_MULTIPLEXER', 'true').lower() == 'true'
 I2C_MUX_ADDRESS = int(os.getenv('I2C_MUX_ADDRESS', '0x70'), 16)
 IMU_MUX_CHANNEL = int(os.getenv('IMU_MUX_CHANNEL', '7'))  # BNO055 on channel 7 (daisy-chained with BMP581)
 BAROMETER_MUX_CHANNEL = int(os.getenv('BAROMETER_MUX_CHANNEL', '7'))  # BMP581 on channel 7 (daisy-chained with BNO055)
-MOTOR1_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR1_CURRENT_MUX_CHANNEL', '4'))  # INA238 on channel 4
+MOTOR1_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR1_CURRENT_MUX_CHANNEL', '5'))  # INA238 on channel 5
 MOTOR1_CURRENT_SENSOR_ADDRESS = int(os.getenv('MOTOR1_CURRENT_SENSOR_ADDRESS', '0x40'), 16)  # INA238 default
 MOTOR2_CURRENT_MUX_CHANNEL = int(os.getenv('MOTOR2_CURRENT_MUX_CHANNEL', '6'))  # INA238 on channel 6
 MOTOR2_CURRENT_SENSOR_ADDRESS = int(os.getenv('MOTOR2_CURRENT_SENSOR_ADDRESS', '0x40'), 16)  # INA238 default
@@ -93,7 +93,7 @@ SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '15'))  # Which channel (0-15) th
 # Multiplexer configuration for PCA9685 (if behind TCA9548A multiplexer)
 USE_MULTIPLEXER_FOR_SERVO = os.getenv('USE_MULTIPLEXER_FOR_SERVO', 'true').lower() == 'true'
 MUX_ADDRESS = int(os.getenv('MUX_ADDRESS', '0x70'), 16)
-PCA9685_MUX_CHANNEL = int(os.getenv('PCA9685_MUX_CHANNEL', '0'))  # Multiplexer channel (0-7)
+PCA9685_MUX_CHANNEL = int(os.getenv('PCA9685_MUX_CHANNEL', '7'))  # Multiplexer channel (0-7)
 
 # Servo pulse width range (microseconds) for AITRIP 35KG servo
 SERVO_MIN_PULSE = int(os.getenv('SERVO_MIN_PULSE', '500'))   # 0° position (500us)
@@ -132,21 +132,28 @@ import platform
 IS_WINDOWS = platform.system() == 'Windows'
 IS_RASPBERRY_PI = os.path.exists('/proc/device-tree/model')
 
-# Autonomous Cutting Configuration
-# Default thresholds (Amps) — used for CS2 and as fallback
-AUTOCUT_HIGH_CURRENT_A        = float(os.getenv('AUTOCUT_HIGH_CURRENT_A', '0.7'))   # Back off above this
-AUTOCUT_SAFE_CURRENT_A        = float(os.getenv('AUTOCUT_SAFE_CURRENT_A', '0.6'))   # Re-advance below this
-AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '0.5'))   # Breakthrough: current below this
-# CS1-specific thresholds (tuned for CS1 chainsaw's actual draw)
-# Normal free-spin current: ~0.130A; contact/cutting: up to 0.2A; breakthrough: drops below 0.110A
-CS1_AUTOCUT_HIGH_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_HIGH_CURRENT_A', '0.3'))   # CS1: back off above this
-CS1_AUTOCUT_SAFE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_SAFE_CURRENT_A', '0.130')) # CS1: re-advance below this (back to normal)
-CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '0.110')) # CS1: breakthrough threshold
-# Feed motor speeds (0–800)
-AUTOCUT_ADVANCE_SPEED         = int(os.getenv('AUTOCUT_ADVANCE_SPEED', '250'))      # Slow advance into wood
-AUTOCUT_BACKOFF_SPEED         = int(os.getenv('AUTOCUT_BACKOFF_SPEED', '125'))      # Gentle backoff
+# Autonomous Cutting Configuration (PID-controlled feed motor)
+# CS2 defaults — target current setpoint and PID gains
+AUTOCUT_TARGET_CURRENT_A      = float(os.getenv('AUTOCUT_TARGET_CURRENT_A', '3.3'))   # PID setpoint (A)
+AUTOCUT_PID_KP                = float(os.getenv('AUTOCUT_PID_KP', '80.0'))             # Proportional gain
+AUTOCUT_PID_KI                = float(os.getenv('AUTOCUT_PID_KI', '20.0'))             # Integral gain
+AUTOCUT_PID_KD                = float(os.getenv('AUTOCUT_PID_KD', '0.0'))              # Derivative gain
+AUTOCUT_MAX_SPEED             = int(os.getenv('AUTOCUT_MAX_SPEED', '150'))             # Max feed speed during PID cutting (0–800)
+AUTOCUT_APPROACH_SPEED        = int(os.getenv('AUTOCUT_APPROACH_SPEED', '600'))        # Feed speed during pre-contact approach (0–800)
+AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '2.6'))     # Breakthrough: current below this (A)
+# CS1-specific PID params
+# Normal free-spin current: ~1.8–2.0A; contact/cutting: higher; breakthrough: drops back to free-spin
+# idle_current must be ABOVE free-spin so pre-contact approach phase activates correctly
+CS1_AUTOCUT_TARGET_CURRENT_A  = float(os.getenv('CS1_AUTOCUT_TARGET_CURRENT_A', '3.5'))    # CS1 PID setpoint (A) — tune to desired cutting load
+CS1_AUTOCUT_PID_KP            = float(os.getenv('CS1_AUTOCUT_PID_KP', '80.0'))             # CS1 proportional gain
+CS1_AUTOCUT_PID_KI            = float(os.getenv('CS1_AUTOCUT_PID_KI', '20.0'))             # CS1 integral gain
+CS1_AUTOCUT_PID_KD            = float(os.getenv('CS1_AUTOCUT_PID_KD', '0.0'))              # CS1 derivative gain
+CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '2.3'))      # CS1 contact/breakthrough threshold (A) — must exceed free-spin ~2.0A
+CS1_AUTOCUT_APPROACH_SPEED    = int(os.getenv('CS1_AUTOCUT_APPROACH_SPEED', '600'))        # CS1 pre-contact approach speed (0–800)
 # Timing
 AUTOCUT_BREAKTHROUGH_CONFIRM_S = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '1.0'))  # Seconds at idle to confirm cut
 AUTOCUT_LOOP_INTERVAL_S       = float(os.getenv('AUTOCUT_LOOP_INTERVAL_S', '0.05'))         # Control loop rate (20 Hz)
+AUTOCUT_CONTACT_CONFIRM_READS = int(os.getenv('AUTOCUT_CONTACT_CONFIRM_READS', '3'))        # Consecutive reads above idle_current to confirm contact
+AUTOCUT_MAX_CUT_DURATION_S    = float(os.getenv('AUTOCUT_MAX_CUT_DURATION_S', '45.0'))      # Max cut time before forced retract (safety fallback)
 # Double-press window for controller L2/R2 to trigger autonomous mode
 AUTOCUT_DOUBLE_PRESS_WINDOW_S = float(os.getenv('AUTOCUT_DOUBLE_PRESS_WINDOW_S', '0.5'))

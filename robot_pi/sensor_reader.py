@@ -15,8 +15,8 @@ MULTIPLEXER SUPPORT:
 - Gracefully handles missing multiplexer hardware
 
 SENSOR HARDWARE:
-- BNO055 IMU at 0x28 on multiplexer channel 1
-- BMP581 barometer at 0x47 on multiplexer channel 0
+- BNO055 IMU at 0x28 on multiplexer channel 7
+- BMP581 barometer at 0x47 on multiplexer channel 7
 """
 import logging
 import math
@@ -90,7 +90,7 @@ class SensorReader:
     def __init__(self, i2c_bus: int = 1, bno055_addr: int = 0x28, bmp581_addr: int = 0x47,
                  read_interval: float = 0.1, use_multiplexer: bool = True,
                  mux_addr: int = 0x70, imu_channel: int = 1, baro_channel: int = 0,
-                 motor1_current_mux_channel: int = 7, motor1_current_sensor_addr: int = 0x40,
+                 motor1_current_mux_channel: int = 5, motor1_current_sensor_addr: int = 0x40,
                  motor2_current_mux_channel: int = 6, motor2_current_sensor_addr: int = 0x40,
                  motor1_shunt_ohms: float = 0.015, motor1_max_amps: float = 10.0,
                  motor2_shunt_ohms: float = 0.015, motor2_max_amps: float = 10.0):
@@ -105,7 +105,7 @@ class SensorReader:
         self.imu_channel = imu_channel
         self.baro_channel = baro_channel
 
-        # Motor 1 external current sensor (INA238 on mux channel 0)
+        # Motor 1 external current sensor (INA238 on mux channel 5)
         self.motor1_current_mux_channel = motor1_current_mux_channel
         self.motor1_current_sensor_addr = motor1_current_sensor_addr
 
@@ -496,19 +496,24 @@ class SensorReader:
     def _read_motor1_current(self) -> tuple:
         """Read motor 1 current from INA238 via smbus2 (direct kernel ioctl).
 
-        Does NOT use _i2c_lock or busio, so it cannot be blocked or frozen by
-        the busio try_lock() spin-loop that busio I2C errors can cause.
+        Acquires _i2c_lock with a short timeout before selecting the mux channel
+        to prevent [Errno 5] I/O errors caused by smbus2 and busio both writing
+        to the TCA9548A at the same time.  If the lock is busy, the read is
+        skipped and the last known value is kept.
 
         Protocol:
-          1. write_byte(0x70, 1<<ch)   — select mux channel
-          2. read_i2c_block_data(0x40, 0x04, 2) — read INA238 CURRENT register
-          3. big-endian signed 16-bit → amps via current_lsb
+          1. acquire _i2c_lock (40 ms timeout — skip read if busy)
+          2. write_byte(0x70, 1<<ch)   — select mux channel
+          3. read_i2c_block_data(0x40, 0x04, 2) — read INA238 CURRENT register
+          4. big-endian signed 16-bit → amps via current_lsb
 
         Returns:
             (current_amps: float, ok: bool)
         """
         if not self._smbus_m1:
             return 0.0, False
+        if not self._i2c_lock.acquire(timeout=0.04):
+            return 0.0, False  # bus busy — skip this sample
         try:
             self._smbus_m1.write_byte(self.mux_addr, 1 << self.motor1_current_mux_channel)
             data = self._smbus_m1.read_i2c_block_data(
@@ -526,17 +531,22 @@ class SensorReader:
                     f"INA238 read error (#{self._current_error_count}): {e}"
                 )
             return 0.0, False
+        finally:
+            self._i2c_lock.release()
 
     def _read_motor2_current(self) -> tuple:
         """Read motor 2 current from INA238 via smbus2 (direct kernel ioctl).
 
-        Same approach as motor 1 — no busio, no spin-loop risk.
+        Same locking approach as motor 1 — acquires _i2c_lock before touching
+        the TCA9548A mux to prevent collision with the busio BNO055 thread.
 
         Returns:
             (current_amps: float, ok: bool)
         """
         if not self._smbus_m2:
             return 0.0, False
+        if not self._i2c_lock.acquire(timeout=0.04):
+            return 0.0, False  # bus busy — skip this sample
         try:
             self._smbus_m2.write_byte(self.mux_addr, 1 << self.motor2_current_mux_channel)
             data = self._smbus_m2.read_i2c_block_data(
@@ -554,6 +564,8 @@ class SensorReader:
                     f"INA238 (motor 2) read error (#{self._motor2_error_count}): {e}"
                 )
             return 0.0, False
+        finally:
+            self._i2c_lock.release()
 
     def _read_barometer(self) -> Optional[Dict[str, float]]:
         """Read barometer data from BMP581.
@@ -615,7 +627,7 @@ class SensorReader:
 
     def _motor1_current_loop(self):
         """
-        Dedicated 20 Hz loop for motor 1 current (INA238 on mux ch.0).
+        Dedicated 20 Hz loop for motor 1 current (INA238 on mux ch.5).
 
         Runs in its own thread so the INA238 sample rate is independent of
         the IMU/barometer loop.  Each reading is written to a small IPC file

@@ -451,6 +451,7 @@ def api_motor_set():
             action = 'off' if speed == 0 else 'on'
             cmd = {'chainsaw_id': chainsaw_id, 'action': action}
             try:
+                os.makedirs(os.path.dirname(CHAINSAW_ONOFF_CMD_FILE), exist_ok=True)
                 tmp = CHAINSAW_ONOFF_CMD_FILE + '.tmp'
                 with open(tmp, 'w') as f:
                     json.dump(cmd, f)
@@ -530,6 +531,7 @@ def api_autocut_start():
         if chainsaw_id not in (1, 2):
             return jsonify({'error': 'chainsaw_id must be 1 or 2'}), 400
         cmd = {'chainsaw_id': chainsaw_id, 'action': 'start'}
+        os.makedirs(os.path.dirname(AUTOCUT_CMD_FILE), exist_ok=True)
         tmp = AUTOCUT_CMD_FILE + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(cmd, f)
@@ -551,6 +553,7 @@ def api_autocut_stop():
         if chainsaw_id not in (1, 2):
             return jsonify({'error': 'chainsaw_id must be 1 or 2'}), 400
         cmd = {'chainsaw_id': chainsaw_id, 'action': 'stop'}
+        os.makedirs(os.path.dirname(AUTOCUT_CMD_FILE), exist_ok=True)
         tmp = AUTOCUT_CMD_FILE + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(cmd, f)

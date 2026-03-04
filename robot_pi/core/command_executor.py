@@ -587,8 +587,8 @@ class CommandExecutor:
                             if self._chainsaw2_start_time is None:
                                 self._chainsaw2_start_time = time.time()
                                 logger.debug("Chainsaw 2: Timer started via axis")
-                            # Set motor speed (inside lock so timeout can't race) - direction swapped
-                            speed = int(-self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
+                            # Set motor speed (inside lock so timeout can't race)
+                            speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
                             logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
                             self.actuator_controller.set_motor_speed(3, speed)
 
@@ -665,7 +665,7 @@ class CommandExecutor:
                             # First (or new) press — soft-start ramp
                             self._r2_last_press_time = now
                             logger.info("R2 button: Chainsaw 2 ON (Motor 4, soft-start)")
-                            self._cs2_ramp.set_target(-self._chainsaw_onoff_speed)
+                            self._cs2_ramp.set_target(self._chainsaw_onoff_speed)
                     else:
                         # Release — soft-stop ramp
                         logger.info("R2 button: Chainsaw 2 OFF (Motor 4, soft-stop)")
@@ -710,7 +710,8 @@ class CommandExecutor:
         # Support both 'on'/'off' and 'press'/'release' for compatibility
         if action in ('on', 'press'):
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (soft-start)")
-            ramp.set_target(-self._chainsaw_onoff_speed)
+            onoff_sign = 1 if chainsaw_id == 2 else -1
+            ramp.set_target(onoff_sign * self._chainsaw_onoff_speed)
         else:  # 'off' or 'release'
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF (soft-stop)")
             ramp.set_target(0)
@@ -757,21 +758,16 @@ class CommandExecutor:
                         logger.info(f"Chainsaw {chainsaw_id} timer started (1.5s timeout)")
 
                 # Set motor speed (inside lock so timeout can't race)
-                # Note: Chainsaw 2 (Motor 3) has direction swapped
+                # CS1 Motor 2: +speed = down, -speed = up
+                # CS2 Motor 3: -speed = down, +speed = up (direction swapped)
                 if direction == 'up':
-                    if chainsaw_id == 2:
-                        logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} backward (90% power, direction swapped)")
-                        self.actuator_controller.set_motor_speed(motor_id, -speed)
-                    else:
-                        logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} forward (90% power)")
-                        self.actuator_controller.set_motor_speed(motor_id, speed)
+                    logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} backward (90% power)")
+                    dir_sign = 1 if chainsaw_id == 2 else -1
+                    self.actuator_controller.set_motor_speed(motor_id, dir_sign * speed)
                 else:  # down
-                    if chainsaw_id == 2:
-                        logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} forward (90% power, direction swapped)")
-                        self.actuator_controller.set_motor_speed(motor_id, speed)
-                    else:
-                        logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} backward (90% power)")
-                        self.actuator_controller.set_motor_speed(motor_id, -speed)
+                    logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} forward (90% power)")
+                    dir_sign = -1 if chainsaw_id == 2 else 1
+                    self.actuator_controller.set_motor_speed(motor_id, dir_sign * speed)
 
         else:  # stop
             logger.info(f"Chainsaw {chainsaw_id} STOP: Motor {motor_id}")
@@ -873,6 +869,7 @@ class CommandExecutor:
                 'cs1': self._autocut1_active,
                 'cs2': self._autocut2_active,
             }
+            os.makedirs(os.path.dirname(AUTOCUT_STATUS_FILE), exist_ok=True)
             tmp = AUTOCUT_STATUS_FILE + '.tmp'
             with open(tmp, 'w') as f:
                 json.dump(status, f)
@@ -907,30 +904,40 @@ class CommandExecutor:
                 self._autocut_cs2 = None
 
             ramp = self._cs1_ramp if chainsaw_id == 1 else self._cs2_ramp
-            # Use per-chainsaw thresholds if defined, else fall back to defaults
+            # Use per-chainsaw PID params if defined, else fall back to CS2 defaults
             if chainsaw_id == 1:
-                high_current = config.CS1_AUTOCUT_HIGH_CURRENT_A
-                safe_current = config.CS1_AUTOCUT_SAFE_CURRENT_A
-                idle_current = config.CS1_AUTOCUT_IDLE_CURRENT_A
+                target_current = config.CS1_AUTOCUT_TARGET_CURRENT_A
+                pid_kp         = config.CS1_AUTOCUT_PID_KP
+                pid_ki         = config.CS1_AUTOCUT_PID_KI
+                pid_kd         = config.CS1_AUTOCUT_PID_KD
+                idle_current   = config.CS1_AUTOCUT_IDLE_CURRENT_A
+                approach_speed = config.CS1_AUTOCUT_APPROACH_SPEED
             else:
-                high_current = config.AUTOCUT_HIGH_CURRENT_A
-                safe_current = config.AUTOCUT_SAFE_CURRENT_A
-                idle_current = config.AUTOCUT_IDLE_CURRENT_A
+                target_current = config.AUTOCUT_TARGET_CURRENT_A
+                pid_kp         = config.AUTOCUT_PID_KP
+                pid_ki         = config.AUTOCUT_PID_KI
+                pid_kd         = config.AUTOCUT_PID_KD
+                idle_current   = config.AUTOCUT_IDLE_CURRENT_A
+                approach_speed = config.AUTOCUT_APPROACH_SPEED
 
             cutter = AutonomousCutter(
                 chainsaw_id=chainsaw_id,
                 actuator_controller=self.actuator_controller,
                 sensor_reader=self.sensor_reader,
-                high_current=high_current,
-                safe_current=safe_current,
+                target_current=target_current,
+                pid_kp=pid_kp,
+                pid_ki=pid_ki,
+                pid_kd=pid_kd,
+                max_speed=config.AUTOCUT_MAX_SPEED,
                 idle_current=idle_current,
-                advance_speed=config.AUTOCUT_ADVANCE_SPEED,
-                backoff_speed=config.AUTOCUT_BACKOFF_SPEED,
                 breakthrough_confirm_s=config.AUTOCUT_BREAKTHROUGH_CONFIRM_S,
                 loop_interval_s=config.AUTOCUT_LOOP_INTERVAL_S,
                 onoff_speed=self._chainsaw_onoff_speed,
                 set_blade_speed=ramp.set_target,
                 on_complete=self._on_autocut_complete,
+                approach_speed=approach_speed,
+                contact_confirm_reads=config.AUTOCUT_CONTACT_CONFIRM_READS,
+                max_cut_duration_s=config.AUTOCUT_MAX_CUT_DURATION_S,
             )
 
             if chainsaw_id == 1:
