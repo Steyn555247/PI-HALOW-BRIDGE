@@ -267,6 +267,12 @@ class ActuatorController:
                         mc.set_max_acceleration(2, 200)
                         mc.set_max_deceleration(2, 200)
 
+                        # Board 3 (Motors 6+7: ascender + traverse) - disable command timeout
+                        # so the ascender is never auto-stopped by the hardware watchdog
+                        if i == 3:
+                            mc.disable_command_timeout()
+                            logger.info(f"Motoron board {i}: command timeout DISABLED (ascender board)")
+
                         # Ensure motors are stopped
                         mc.set_speed(1, 0)
                         mc.set_speed(2, 0)

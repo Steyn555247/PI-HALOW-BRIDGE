@@ -99,7 +99,10 @@ class BackendClient:
             Proper emergency_stop event with explicit engage/clear.
             Routed through unified handler to prevent duplicates.
             """
-            engage = data.get('engage', True)
+            if 'engage' not in data:
+                logger.warning("emergency_stop event missing 'engage' field - ignoring to avoid spurious e-stop")
+                return
+            engage = data['engage']
             logger.info(f"Received emergency_stop event (engage={engage})")
             self._handle_emergency_event(engage, 'emergency_stop')
 
@@ -109,7 +112,10 @@ class BackendClient:
             Status broadcast from backend (triggered by TrimUI).
             Routed through unified handler to prevent duplicates.
             """
-            active = data.get('active', True)  # Default to engaged for safety
+            if 'active' not in data:
+                logger.warning("emergency_status event missing 'active' field - ignoring to avoid spurious e-stop")
+                return
+            active = data['active']
             logger.info(f"Received emergency_status event (active={active})")
             self._handle_emergency_event(active, 'emergency_status')
 
