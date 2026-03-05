@@ -109,12 +109,18 @@ class ChainsawRamp:
             if current != target:
                 # Ramp-up when magnitude is increasing, ramp-down otherwise.
                 ramping_up = abs(target) > abs(current)
-                step = up_step if ramping_up else down_step
 
-                if target < current:   # going more negative (spinning up)
-                    self._current_f = max(float(target), self._current_f - step)
-                else:                  # going toward 0 (spinning down)
-                    self._current_f = min(float(target), self._current_f + step)
+                if ramping_up:
+                    # INSTANT ramp-up: jump directly to target
+                    self._current_f = float(target)
+                    logger.debug(f"Chainsaw Motor {self.motor_id}: INSTANT start to {target}")
+                else:
+                    # GRADUAL ramp-down: use slow deceleration step
+                    step = down_step
+                    if target < current:   # going more negative (spinning up)
+                        self._current_f = max(float(target), self._current_f - step)
+                    else:                  # going toward 0 (spinning down)
+                        self._current_f = min(float(target), self._current_f + step)
 
                 new_speed = int(round(self._current_f))
                 with self._lock:
@@ -167,7 +173,7 @@ class CommandExecutor:
         self.force = 0.0
 
         # Chainsaw control - 90% power (720/800)
-        self._chainsaw_speed_multiplier = 200
+        self._chainsaw_speed_multiplier = 100  # Reduced from 200 to 100 (half speed)
         self._chainsaw_onoff_speed = 780
 
         # Soft-start/stop ramps for chainsaw on/off motors.
@@ -186,9 +192,12 @@ class CommandExecutor:
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
 
+        # R1 button state for fast feed travel
+        self._r1_pressed = False
+
         # Chainsaw up/down timeout (background thread monitors this)
-        # 1.5 seconds max continuous run time - auto-stops then immediately ready for reuse
-        self._chainsaw_timeout_s = 1.5  # Max continuous run time (1.5 seconds)
+        # 0.75 seconds max continuous run time - auto-stops then immediately ready for reuse
+        self._chainsaw_timeout_s = 0.75  # Max continuous run time (0.75 seconds, reduced from 1.5s)
         self._chainsaw1_start_time = None  # When motor 2 started (None = not running)
         self._chainsaw2_start_time = None  # When motor 3 started
         self._chainsaw_lock = threading.Lock()
@@ -436,6 +445,9 @@ class CommandExecutor:
         elif command_type == 'brake_command':
             self._handle_brake_command(data)
 
+        elif command_type == 'r1_button':
+            self._handle_r1_button(data)
+
         else:
             logger.warning(f"Unknown command type: {command_type} (ignored)")
 
@@ -553,21 +565,22 @@ class CommandExecutor:
 
                     # Apply deadzone - treat small values as zero
                     if abs(self._chainsaw2_axis_value) < DEADZONE:
-                        logger.debug("Chainsaw 2 STOP: Stick released via axis (Motor 3)")
+                        logger.debug("Chainsaw 2 STOP: Stick centered")
                         with self._chainsaw_lock:
                             self._chainsaw2_start_time = None  # Clear timer
                         self.actuator_controller.set_motor_speed(3, 0)
                     else:
-                        # All motor control inside lock to prevent race with timeout thread
+                        # Select speed based on R1 state
+                        speed_multiplier = 600 if self._r1_pressed else self._chainsaw_speed_multiplier  # 100
+                        speed = int(self._chainsaw2_axis_value * speed_multiplier)
+
                         with self._chainsaw_lock:
-                            # Start timer if not already running
                             if self._chainsaw2_start_time is None:
                                 self._chainsaw2_start_time = time.time()
-                                logger.debug("Chainsaw 2: Timer started via axis")
-                            # Set motor speed (inside lock so timeout can't race)
-                            speed = int(self._chainsaw2_axis_value * self._chainsaw_speed_multiplier)
-                            logger.debug(f"Chainsaw 2: Motor 3 speed={speed}")
-                            self.actuator_controller.set_motor_speed(3, speed)
+
+                        mode = "FAST (600)" if self._r1_pressed else f"NORMAL ({self._chainsaw_speed_multiplier})"
+                        logger.info(f"CS2 feed Motor 3: {speed} [{mode}]")
+                        self.actuator_controller.set_motor_speed(3, speed)
 
                 # Right Stick Y-axis (Axis 3): Chainsaw 1 up/down (Motor 2)
                 # NOTE: This is LEGACY - Flutter app sends button events (indices 20-21) instead
@@ -576,21 +589,22 @@ class CommandExecutor:
 
                     # Apply deadzone - treat small values as zero
                     if abs(self._chainsaw1_axis_value) < DEADZONE:
-                        logger.debug("Chainsaw 1 STOP: Stick released via axis (Motor 2)")
+                        logger.debug("Chainsaw 1 STOP: Stick centered")
                         with self._chainsaw_lock:
                             self._chainsaw1_start_time = None  # Clear timer
                         self.actuator_controller.set_motor_speed(2, 0)
                     else:
-                        # All motor control inside lock to prevent race with timeout thread
+                        # Select speed based on R1 state
+                        speed_multiplier = 600 if self._r1_pressed else self._chainsaw_speed_multiplier  # 100
+                        speed = int(self._chainsaw1_axis_value * speed_multiplier)
+
                         with self._chainsaw_lock:
-                            # Start timer if not already running
                             if self._chainsaw1_start_time is None:
                                 self._chainsaw1_start_time = time.time()
-                                logger.debug("Chainsaw 1: Timer started via axis")
-                            # Set motor speed (inside lock so timeout can't race)
-                            speed = int(self._chainsaw1_axis_value * self._chainsaw_speed_multiplier)
-                            logger.debug(f"Chainsaw 1: Motor 2 speed={speed}")
-                            self.actuator_controller.set_motor_speed(2, speed)
+
+                        mode = "FAST (600)" if self._r1_pressed else f"NORMAL ({self._chainsaw_speed_multiplier})"
+                        logger.info(f"CS1 feed Motor 2: {speed} [{mode}]")
+                        self.actuator_controller.set_motor_speed(2, speed)
 
             elif event_type == 'button':
                 # A button (index 0): Motor 0 UP/FORWARD (claw open)
@@ -682,6 +696,20 @@ class CommandExecutor:
 
         except (ValueError, TypeError) as e:
             logger.warning(f"Invalid input_event data: {e}")
+
+    def _handle_r1_button(self, data: Dict[str, Any]):
+        """Handle R1 button for fast feed travel mode."""
+        action = data.get('action', 'release')
+
+        with self._input_lock:
+            self._last_input_time = time.time()
+
+        if action == 'press':
+            self._r1_pressed = True
+            logger.info("R1 PRESSED: Fast feed travel mode ENABLED (600 speed)")
+        else:
+            self._r1_pressed = False
+            logger.info("R1 RELEASED: Normal feed mode (100 speed)")
 
     def _handle_chainsaw_command(self, data: Dict[str, Any]):
         """
