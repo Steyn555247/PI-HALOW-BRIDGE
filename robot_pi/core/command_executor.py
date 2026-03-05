@@ -609,67 +609,65 @@ class CommandExecutor:
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
-                # L2 button (index 6): Chainsaw 2 On/Off (Motor 4)
-                # Double-press within AUTOCUT_DOUBLE_PRESS_WINDOW_S → autonomous cutting
-                # Single press/hold → normal hold-to-run
-                elif index == 6:
-                    # Clean up completed autocut if present
-                    with self._autocut_lock:
-                        if self._autocut_cs2 is not None and not self._autocut_cs2.is_running():
-                            self._autocut_cs2 = None
-                            self._autocut2_active = False
-                        autocut_active = self._autocut2_active
-
-                    if autocut_active:
-                        # Autocut owns Motor 4 — suppress all L2 events
-                        pass
-                    elif value > 0:
-                        now = time.time()
-                        if now - self._l2_last_press_time < config.AUTOCUT_DOUBLE_PRESS_WINDOW_S:
-                            # Double-press detected — start autonomous cutting
-                            logger.info("L2 double-press: starting autonomous cut CS2")
-                            self._start_autocut(2)
-                            self._l2_last_press_time = 0.0  # Reset so next press is fresh
-                        else:
-                            # First (or new) press — soft-start ramp
-                            self._l2_last_press_time = now
-                            logger.info("L2 button: Chainsaw 2 ON (Motor 4, soft-start)")
-                            self._cs2_ramp.set_target(self._chainsaw_onoff_speed)
-                    else:
-                        # Release — soft-stop ramp
-                        logger.info("L2 button: Chainsaw 2 OFF (Motor 4, soft-stop)")
-                        self._cs2_ramp.set_target(0)
-
-                # R2 button (index 7): Chainsaw 1 On/Off (Motor 5)
-                # Double-press within AUTOCUT_DOUBLE_PRESS_WINDOW_S → autonomous cutting
-                # Single press/hold → normal hold-to-run
-                elif index == 7:
-                    # Clean up completed autocut if present
-                    with self._autocut_lock:
-                        if self._autocut_cs1 is not None and not self._autocut_cs1.is_running():
-                            self._autocut_cs1 = None
-                            self._autocut1_active = False
-                        autocut_active = self._autocut1_active
-
-                    if autocut_active:
-                        # Autocut owns Motor 5 — suppress all R2 events
-                        pass
-                    elif value > 0:
-                        now = time.time()
-                        if now - self._r2_last_press_time < config.AUTOCUT_DOUBLE_PRESS_WINDOW_S:
-                            # Double-press detected — start autonomous cutting
-                            logger.info("R2 double-press: starting autonomous cut CS1")
-                            self._start_autocut(1)
-                            self._r2_last_press_time = 0.0
-                        else:
-                            # First (or new) press — soft-start ramp
-                            self._r2_last_press_time = now
-                            logger.info("R2 button: Chainsaw 1 ON (Motor 5, soft-start)")
-                            self._cs1_ramp.set_target(-self._chainsaw_onoff_speed)
-                    else:
-                        # Release — soft-stop ramp
-                        logger.info("R2 button: Chainsaw 1 OFF (Motor 5, soft-stop)")
-                        self._cs1_ramp.set_target(0)
+                # L2/R2 button (index 6/7): Chainsaw On/Off
+                # DISABLED: Now handled via chainsaw_command events from backend
+                # This prevents duplicate control where both input_event and chainsaw_command
+                # were activating different motors simultaneously
+                # elif index == 6:
+                #     # Clean up completed autocut if present
+                #     with self._autocut_lock:
+                #         if self._autocut_cs2 is not None and not self._autocut_cs2.is_running():
+                #             self._autocut_cs2 = None
+                #             self._autocut2_active = False
+                #         autocut_active = self._autocut2_active
+                #
+                #     if autocut_active:
+                #         # Autocut owns Motor 4 — suppress all L2 events
+                #         pass
+                #     elif value > 0:
+                #         now = time.time()
+                #         if now - self._l2_last_press_time < config.AUTOCUT_DOUBLE_PRESS_WINDOW_S:
+                #             # Double-press detected — start autonomous cutting
+                #             logger.info("L2 double-press: starting autonomous cut CS2")
+                #             self._start_autocut(2)
+                #             self._l2_last_press_time = 0.0  # Reset so next press is fresh
+                #         else:
+                #             # First (or new) press — soft-start ramp
+                #             self._l2_last_press_time = now
+                #             logger.info("L2 button: Chainsaw 2 ON (Motor 4, soft-start)")
+                #             self._cs2_ramp.set_target(self._chainsaw_onoff_speed)
+                #     else:
+                #         # Release — soft-stop ramp
+                #         logger.info("L2 button: Chainsaw 2 OFF (Motor 4, soft-stop)")
+                #         self._cs2_ramp.set_target(0)
+                #
+                # elif index == 7:
+                #     # Clean up completed autocut if present
+                #     with self._autocut_lock:
+                #         if self._autocut_cs1 is not None and not self._autocut_cs1.is_running():
+                #             self._autocut_cs1 = None
+                #             self._autocut1_active = False
+                #         autocut_active = self._autocut1_active
+                #
+                #     if autocut_active:
+                #         # Autocut owns Motor 5 — suppress all R2 events
+                #         pass
+                #     elif value > 0:
+                #         now = time.time()
+                #         if now - self._r2_last_press_time < config.AUTOCUT_DOUBLE_PRESS_WINDOW_S:
+                #             # Double-press detected — start autonomous cutting
+                #             logger.info("R2 double-press: starting autonomous cut CS1")
+                #             self._start_autocut(1)
+                #             self._r2_last_press_time = 0.0
+                #         else:
+                #             # First (or new) press — soft-start ramp
+                #             self._r2_last_press_time = now
+                #             logger.info("R2 button: Chainsaw 1 ON (Motor 5, soft-start)")
+                #             self._cs1_ramp.set_target(-self._chainsaw_onoff_speed)
+                #     else:
+                #         # Release — soft-stop ramp
+                #         logger.info("R2 button: Chainsaw 1 OFF (Motor 5, soft-stop)")
+                #         self._cs1_ramp.set_target(0)
 
                 # Dpad Down button (index 11): Brake + Descent (Motor 6 forward - direction swapped)
                 elif index == 11:
