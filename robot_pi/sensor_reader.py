@@ -653,9 +653,10 @@ class SensorReader:
         logger.info("Motor 1 current thread started (20 Hz)")
         while self.running:
             # If smbus handle was never initialized (init failed at startup),
-            # retry every 5s so the sensor comes up without a restart.
+            # retry periodically. Use a longer interval to avoid log spam when
+            # the hardware fault is persistent.
             if self._smbus_m1 is None:
-                if time.time() - self._ina238_m1_last_reinit_time >= 5.0:
+                if time.time() - self._ina238_m1_last_reinit_time >= 60.0:
                     self._ina238_m1_last_reinit_time = time.time()
                     self._reinit_motor1_sensor()
                 time.sleep(0.05)

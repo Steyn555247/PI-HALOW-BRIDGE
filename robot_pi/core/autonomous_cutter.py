@@ -6,7 +6,7 @@ a target current draw. Replaces the old bang-bang ADVANCING/BACKING_OFF
 state machine with smooth, linear descent into the branch.
 
 Chainsaw ID mapping:
-  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (+down/-retract), current = sensor 1 (mux ch.5)
+  CS1: on/off = Motor 5 (-speed), feed = Motor 2 (-down/+retract), current = sensor 1 (mux ch.5)
   CS2: on/off = Motor 4 (-speed), feed = Motor 3 (+down/-retract), current = sensor 2 (mux ch.6)
 
 Improvements:
@@ -178,7 +178,7 @@ class AutonomousCutter:
         # Motor / sensor assignment
         if chainsaw_id == 1:
             self.onoff_motor = 5      # Motor 5: use -speed
-            self.feed_motor  = 2      # Motor 2: -speed=down, +speed=retract
+            self.feed_motor  = 2      # Motor 2: -speed=down, +speed=retract (direction swapped)
             self.sensor_key  = 'cs1'
         else:
             self.onoff_motor = 4      # Motor 4: use -speed
@@ -246,13 +246,13 @@ class AutonomousCutter:
         """
         Drive the feed motor at a fixed speed.
 
-        CS1 Motor 2: +speed = forward/down (advance),  -speed = retract
+        CS1 Motor 2: -speed = forward/down (advance),  +speed = retract
         CS2 Motor 3: -speed = down (advance),          +speed = retract (direction swapped)
 
         Returns: True if command succeeded, False if it failed (e.g., E-STOP engaged)
         """
         if self.chainsaw_id == 1:
-            motor_speed = speed if down else -speed
+            motor_speed = -speed if down else speed
         else:
             motor_speed = -speed if down else speed
         return self.actuator_controller.set_motor_speed(self.feed_motor, motor_speed)
@@ -262,14 +262,14 @@ class AutonomousCutter:
         Convert signed PID output to motor command respecting CS1/CS2 polarity.
 
         Positive pid_output = advance/down; negative = backoff/up.
-        CS1 Motor 2: +speed = forward/down,  -speed = retract
+        CS1 Motor 2: -speed = forward/down,  +speed = retract
         CS2 Motor 3: -speed = down,          +speed = retract (direction swapped)
 
         Returns: True if command succeeded, False if it failed (e.g., E-STOP engaged)
         """
         speed = int(round(pid_output))
         if self.chainsaw_id == 1:
-            motor_speed = speed
+            motor_speed = -speed
         else:
             motor_speed = -speed
         return self.actuator_controller.set_motor_speed(self.feed_motor, motor_speed)
