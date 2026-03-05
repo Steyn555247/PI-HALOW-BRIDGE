@@ -767,8 +767,8 @@ class CommandExecutor:
         # Map chainsaw_id to motor: 1→Motor 2, 2→Motor 3
         motor_id = 1 + chainsaw_id  # 1→2, 2→3
 
-        # 90% power = 720
-        speed = self._chainsaw_speed_multiplier
+        # Select speed based on R1 state (normal 100 vs fast travel 600)
+        speed = 600 if self._r1_pressed else self._chainsaw_speed_multiplier
 
         if direction == 'up' or direction == 'down':
             # Use same timeout system as axis control
@@ -786,12 +786,13 @@ class CommandExecutor:
                 # Set motor speed (inside lock so timeout can't race)
                 # CS1 Motor 2: +speed = down, -speed = up
                 # CS2 Motor 3: -speed = down, +speed = up (direction swapped)
+                mode = "FAST (600)" if self._r1_pressed else f"NORMAL ({self._chainsaw_speed_multiplier})"
                 if direction == 'up':
-                    logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} backward (90% power)")
+                    logger.info(f"Chainsaw {chainsaw_id} UP: Motor {motor_id} backward [{mode}]")
                     dir_sign = 1 if chainsaw_id == 2 else -1
                     self.actuator_controller.set_motor_speed(motor_id, dir_sign * speed)
                 else:  # down
-                    logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} forward (90% power)")
+                    logger.info(f"Chainsaw {chainsaw_id} DOWN: Motor {motor_id} forward [{mode}]")
                     dir_sign = -1 if chainsaw_id == 2 else 1
                     self.actuator_controller.set_motor_speed(motor_id, dir_sign * speed)
 

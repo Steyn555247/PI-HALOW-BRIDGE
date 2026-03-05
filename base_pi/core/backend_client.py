@@ -151,6 +151,11 @@ class BackendClient:
         def on_raw_button_press(data):
             self.on_command('raw_button_press', data)
 
+        @self.sio.on('r1_button')
+        def on_r1_button(data):
+            logger.info(f"R1 button: {data.get('action', 'unknown')}")
+            self.on_command('r1_button', data)
+
         @self.sio.on('chainsaw_command')
         def on_chainsaw_command(data):
             logger.info(f"Chainsaw command: {data}")
