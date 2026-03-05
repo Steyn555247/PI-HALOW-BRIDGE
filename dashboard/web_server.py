@@ -580,6 +580,36 @@ def api_autocut_status():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/servo/set', methods=['POST'])
+def api_servo_set():
+    """Set servo position directly (robot Pi only)"""
+    if config.DASHBOARD_ROLE != 'robot_pi':
+        return jsonify({'error': 'Servo control only available on robot Pi'}), 403
+    if actuator_controller is None:
+        return jsonify({'error': 'Actuator controller not initialized'}), 503
+    try:
+        data = request.get_json()
+        position = data.get('position')
+        if position is None:
+            return jsonify({'error': 'position required'}), 400
+        position = float(position)
+        if position < 0.0 or position > 1.0:
+            return jsonify({'error': 'position must be 0.0 to 1.0'}), 400
+        success = actuator_controller.set_servo_position(position)
+        estop_info = actuator_controller.get_estop_info()
+        angle = round(position * 180, 1)
+        return jsonify({
+            'success': success,
+            'position': position,
+            'angle': angle,
+            'estop_engaged': estop_info['engaged'],
+            'message': f'Servo set to {angle}°' if success else 'E-STOP engaged - servo blocked'
+        })
+    except Exception as e:
+        logger.error(f"Servo set failed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/estop/engage', methods=['POST'])
 def api_estop_engage():
     """Engage E-STOP (emergency stop - robot Pi only)"""

@@ -255,6 +255,16 @@
         {% if role == 'robot_pi' %}
         <div class="row mb-3">
             <div class="col-12">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Brake Test</h5>
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <button id="btn-brake-toggle" class="btn btn-primary" onclick="setBrake(!_brakeEngaged)">Engage Brake</button>
+                            <span id="brake-status-badge" class="badge bg-success">Released (60°)</span>
+                        </div>
+                        <small class="text-muted">Engage = 1° (brake on) &nbsp;|&nbsp; Release = 60° (brake off)</small>
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-body">
                         <h5 class="card-title">Autonomous Cutting</h5>

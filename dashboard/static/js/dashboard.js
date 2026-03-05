@@ -644,6 +644,46 @@ function _setAutocutBadge(id, running) {
 }
 
 // ============================================================================
+// Brake / Servo Test
+// ============================================================================
+
+let _brakeEngaged = false;
+
+function setBrake(engage) {
+    // Brake engaged = 1° (position 0.0056), released = 60° (position 0.3333)
+    const position = engage ? (1 / 180) : (60 / 180);
+    fetch('/api/servo/set', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({position: position})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            _brakeEngaged = engage;
+            _updateBrakeButton();
+        } else {
+            alert('Brake command failed: ' + (data.message || data.error));
+        }
+    })
+    .catch(err => alert('Brake error: ' + err));
+}
+
+function _updateBrakeButton() {
+    const btn = document.getElementById('btn-brake-toggle');
+    if (!btn) return;
+    if (_brakeEngaged) {
+        btn.textContent = 'Release Brake';
+        btn.className = 'btn btn-warning';
+    } else {
+        btn.textContent = 'Engage Brake';
+        btn.className = 'btn btn-primary';
+    }
+    document.getElementById('brake-status-badge').textContent = _brakeEngaged ? 'Engaged (1°)' : 'Released (60°)';
+    document.getElementById('brake-status-badge').className = _brakeEngaged ? 'badge bg-danger' : 'badge bg-success';
+}
+
+// ============================================================================
 // Motor Control Functions (UNCHANGED)
 // ============================================================================
 
