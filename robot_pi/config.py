@@ -155,8 +155,9 @@ AUTOCUT_TARGET_CURRENT_A      = float(os.getenv('AUTOCUT_TARGET_CURRENT_A', '1.5
 AUTOCUT_PID_KP                = float(os.getenv('AUTOCUT_PID_KP', '80.0'))             # Proportional gain
 AUTOCUT_PID_KI                = float(os.getenv('AUTOCUT_PID_KI', '20.0'))             # Integral gain
 AUTOCUT_PID_KD                = float(os.getenv('AUTOCUT_PID_KD', '0.0'))              # Derivative gain
-AUTOCUT_MAX_SPEED             = int(os.getenv('AUTOCUT_MAX_SPEED', '150'))             # Max feed speed during PID cutting (0–800)
-AUTOCUT_APPROACH_SPEED        = int(os.getenv('AUTOCUT_APPROACH_SPEED', '600'))        # Feed speed during pre-contact approach (0–800)
+AUTOCUT_BLADE_SPEED           = int(os.getenv('AUTOCUT_BLADE_SPEED', '680'))           # Blade on/off speed during autonomous cutting (lower = less EMI)
+AUTOCUT_MAX_SPEED             = int(os.getenv('AUTOCUT_MAX_SPEED', '200'))             # Max feed speed during PID cutting (0–800)
+AUTOCUT_APPROACH_SPEED        = int(os.getenv('AUTOCUT_APPROACH_SPEED', '200'))        # Feed speed during pre-contact approach (0–800)
 AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '1.0'))     # Contact/breakthrough OFFSET above baseline (A) → ~3.0A absolute
 # Timing
 AUTOCUT_BREAKTHROUGH_CONFIRM_S = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '1.0'))  # Seconds at idle to confirm cut

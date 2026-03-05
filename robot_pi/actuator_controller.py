@@ -174,7 +174,8 @@ class ActuatorController:
                  servo_freq: int = 50,
                  active_motors: int = 8,
                  servo_min_duty: float = 2.5,
-                 servo_max_duty: float = 12.5):
+                 servo_max_duty: float = 12.5,
+                 i2c_lock=None):
         self.motoron_addresses = motoron_addresses
         self.active_motors = active_motors
 
@@ -220,6 +221,10 @@ class ActuatorController:
         # Single lock protects ALL E-STOP state and actuation
         # This prevents TOCTOU race conditions
         self._lock = threading.Lock()
+
+        # Shared I2C bus lock — serialises PCA9685 mux writes against
+        # the SensorReader's INA238 mux reads on the same TCA9548A.
+        self._i2c_lock = i2c_lock
 
         logger.info(f"ActuatorController initialized: {len(motoron_addresses)} Motoron boards, "
                    f"{active_motors} active motors, E-STOP DISABLED (operator_command only)")
@@ -438,11 +443,15 @@ class ActuatorController:
             # Stop servo (set to 60°)
             servo_stopped = False
             if self.servo_kit:
+                acquired = self._i2c_lock.acquire(timeout=0.05) if self._i2c_lock else True
                 try:
                     self.servo_kit.servo[self.servo_channel].angle = 60
                     servo_stopped = True
                 except Exception as e:
                     logger.error(f"CRITICAL: Failed to stop PCA9685 servo during E-STOP: {e}")
+                finally:
+                    if acquired and self._i2c_lock:
+                        self._i2c_lock.release()
             elif self.servo_pwm:
                 try:
                     # 60° = 60/180 = 0.3333 of range
@@ -634,16 +643,20 @@ class ActuatorController:
             position = max(0.0, min(1.0, position))
 
             if self.servo_kit:
+                acquired = self._i2c_lock.acquire(timeout=0.05) if self._i2c_lock else True
                 try:
-                    # Map position (0.0-1.0) to angle (0° to actuation_range)
+                    if not acquired:
+                        logger.warning("set_servo_position: I2C bus busy, proceeding anyway")
                     angle = position * self.servo_actuation_range
                     self.servo_kit.servo[self.servo_channel].angle = angle
                     logger.info(f"PCA9685 servo position set: {position:.2f} (angle: {angle:.1f}°)")
                     return True
                 except Exception as e:
                     logger.error(f"Error setting PCA9685 servo position: {e}")
-                    # Auto E-STOP disabled - log error but don't stop system
                     return False
+                finally:
+                    if acquired and self._i2c_lock:
+                        self._i2c_lock.release()
 
             elif self.servo_pwm:
                 try:

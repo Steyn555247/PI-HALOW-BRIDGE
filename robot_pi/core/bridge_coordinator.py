@@ -69,6 +69,10 @@ class HaLowBridge:
         if not self.framer.is_authenticated():
             logger.critical("NO VALID PSK - Robot will refuse to clear E-STOP")
 
+        # Shared I2C bus lock — prevents the PCA9685 servo (via TCA9548A mux ch.4)
+        # from switching the mux while INA238 current sensors (mux ch.5/6) are reading.
+        shared_i2c_lock = threading.Lock()
+
         # Components - ActuatorController starts with E-STOP ENGAGED
         self.actuator_controller = ActuatorController(
             motoron_addresses=config.MOTORON_ADDRESSES,
@@ -87,7 +91,8 @@ class HaLowBridge:
             servo_freq=config.SERVO_FREQ,
             active_motors=config.ACTIVE_MOTORS,
             servo_min_duty=config.SERVO_MIN_DUTY,
-            servo_max_duty=config.SERVO_MAX_DUTY
+            servo_max_duty=config.SERVO_MAX_DUTY,
+            i2c_lock=shared_i2c_lock
         )
 
         self.sensor_reader = SensorReader(
@@ -107,6 +112,7 @@ class HaLowBridge:
             motor1_max_amps=config.MOTOR1_CURRENT_MAX_AMPS,
             motor2_shunt_ohms=config.MOTOR2_CURRENT_SHUNT_OHMS,
             motor2_max_amps=config.MOTOR2_CURRENT_MAX_AMPS,
+            i2c_lock=shared_i2c_lock,
         )
 
         self.video_capture = None
@@ -321,7 +327,7 @@ class HaLowBridge:
                     elif action == 'on':
                         ramp = self.command_executor._cs1_ramp if chainsaw_id == 1 else self.command_executor._cs2_ramp
                         logger.info(f"Dashboard: chainsaw CS{chainsaw_id} ON (soft-start via ramp)")
-                        ramp.set_target(-self.command_executor._chainsaw_onoff_speed)
+                        ramp.set_target(self.command_executor._chainsaw_onoff_speed)
                     elif action == 'off':
                         ramp = self.command_executor._cs1_ramp if chainsaw_id == 1 else self.command_executor._cs2_ramp
                         logger.info(f"Dashboard: chainsaw CS{chainsaw_id} OFF (soft-stop via ramp)")

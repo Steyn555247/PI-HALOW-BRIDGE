@@ -167,8 +167,8 @@ class CommandExecutor:
         self.force = 0.0
 
         # Chainsaw control - 90% power (720/800)
-        self._chainsaw_speed_multiplier = 720
-        self._chainsaw_onoff_speed = 720
+        self._chainsaw_speed_multiplier = 200
+        self._chainsaw_onoff_speed = 780
 
         # Soft-start/stop ramps for chainsaw on/off motors.
         # CS1 = Motor 5, CS2 = Motor 4. Ramp threads start immediately
@@ -708,7 +708,7 @@ class CommandExecutor:
         # Support both 'on'/'off' and 'press'/'release' for compatibility
         if action in ('on', 'press'):
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (soft-start)")
-            onoff_sign = 1 if chainsaw_id == 2 else -1
+            onoff_sign = 1
             ramp.set_target(onoff_sign * self._chainsaw_onoff_speed)
         else:  # 'off' or 'release'
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF (soft-stop)")
@@ -915,7 +915,7 @@ class CommandExecutor:
                 idle_current=config.AUTOCUT_IDLE_CURRENT_A,
                 breakthrough_confirm_s=config.AUTOCUT_BREAKTHROUGH_CONFIRM_S,
                 loop_interval_s=config.AUTOCUT_LOOP_INTERVAL_S,
-                onoff_speed=self._chainsaw_onoff_speed,
+                onoff_speed=config.AUTOCUT_BLADE_SPEED,
                 set_blade_speed=ramp.set_target,
                 on_complete=self._on_autocut_complete,
                 approach_speed=config.AUTOCUT_APPROACH_SPEED,
@@ -962,6 +962,14 @@ class CommandExecutor:
                 self._autocut2_active = False
                 with self._chainsaw_lock:
                     self._chainsaw2_start_time = None
+
+        # Always stop blade and feed — covers the case where autocut completed
+        # naturally (instance already cleared) but blade is still spinning.
+        ramp = self._cs1_ramp if chainsaw_id == 1 else self._cs2_ramp
+        ramp.set_target(0)
+        feed_motor = 2 if chainsaw_id == 1 else 3
+        self.actuator_controller.set_motor_speed(feed_motor, 0)
+
         logger.info(f"Autocut CS{chainsaw_id} stopped")
         self._write_autocut_status()
 

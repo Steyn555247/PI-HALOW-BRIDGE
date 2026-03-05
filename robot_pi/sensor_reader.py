@@ -93,7 +93,8 @@ class SensorReader:
                  motor1_current_mux_channel: int = 5, motor1_current_sensor_addr: int = 0x40,
                  motor2_current_mux_channel: int = 6, motor2_current_sensor_addr: int = 0x40,
                  motor1_shunt_ohms: float = 0.015, motor1_max_amps: float = 10.0,
-                 motor2_shunt_ohms: float = 0.015, motor2_max_amps: float = 10.0):
+                 motor2_shunt_ohms: float = 0.015, motor2_max_amps: float = 10.0,
+                 i2c_lock=None):
         self.i2c_bus = i2c_bus
         self.bno055_addr = bno055_addr
         self.bmp581_addr = bmp581_addr
@@ -150,7 +151,9 @@ class SensorReader:
 
         # Serialise all I2C/multiplexer access across threads to prevent
         # channel-switching races on the shared TCA9548A multiplexer.
-        self._i2c_lock = threading.Lock()
+        # If a shared lock is provided (e.g. shared with ActuatorController),
+        # use it so servo mux writes are also serialised against INA238 reads.
+        self._i2c_lock = i2c_lock if i2c_lock is not None else threading.Lock()
 
         # INA238 error tracking for rate-limited logging (motor 1)
         self._current_error_count: int = 0
