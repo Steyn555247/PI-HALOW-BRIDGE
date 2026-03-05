@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 AUTOCUT_CMD_FILE = '/run/serpent/autocut_cmd'
 CHAINSAW_ONOFF_CMD_FILE = '/run/serpent/chainsaw_onoff_cmd'
+SERVO_CMD_FILE = '/run/serpent/servo_cmd'
 
 
 class HaLowBridge:
@@ -224,6 +225,10 @@ class HaLowBridge:
         chainsaw_onoff_thread = threading.Thread(target=self._chainsaw_onoff_cmd_poll_loop, daemon=True)
         chainsaw_onoff_thread.start()
 
+        # Start servo command poll thread (dashboard IPC)
+        servo_cmd_thread = threading.Thread(target=self._servo_cmd_poll_loop, daemon=True)
+        servo_cmd_thread.start()
+
         # Start control receiver thread
         control_thread = threading.Thread(target=self._control_receiver_loop, daemon=True)
         control_thread.start()
@@ -329,6 +334,44 @@ class HaLowBridge:
 
             time.sleep(0.2)
         logger.info("Chainsaw on/off command poll loop stopped")
+
+    def _servo_cmd_poll_loop(self):
+        """
+        Poll for servo position commands from the dashboard via file IPC.
+
+        Dashboard writes /run/serpent/servo_cmd with JSON:
+            {"position": 0.0-1.0}
+        """
+        logger.info("Servo command poll loop started")
+        while self.running:
+            try:
+                if os.path.exists(SERVO_CMD_FILE):
+                    try:
+                        with open(SERVO_CMD_FILE, 'r') as f:
+                            cmd = json.load(f)
+                        os.unlink(SERVO_CMD_FILE)
+                    except (json.JSONDecodeError, OSError) as e:
+                        logger.warning(f"Bad servo cmd file: {e}")
+                        try:
+                            os.unlink(SERVO_CMD_FILE)
+                        except OSError:
+                            pass
+                        time.sleep(0.1)
+                        continue
+
+                    position = float(cmd.get('position', -1))
+                    if 0.0 <= position <= 1.0:
+                        angle = round(position * 180, 1)
+                        logger.info(f"Dashboard: servo position {position:.4f} ({angle}°)")
+                        self.actuator_controller.set_servo_position(position)
+                    else:
+                        logger.warning(f"Invalid servo position: {position}")
+
+            except Exception as e:
+                logger.error(f"Error in servo cmd poll loop: {e}")
+
+            time.sleep(0.1)
+        logger.info("Servo command poll loop stopped")
 
     def stop(self):
         """Stop the bridge."""

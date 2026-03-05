@@ -904,38 +904,23 @@ class CommandExecutor:
                 self._autocut_cs2 = None
 
             ramp = self._cs1_ramp if chainsaw_id == 1 else self._cs2_ramp
-            # Use per-chainsaw PID params if defined, else fall back to CS2 defaults
-            if chainsaw_id == 1:
-                target_current = config.CS1_AUTOCUT_TARGET_CURRENT_A
-                pid_kp         = config.CS1_AUTOCUT_PID_KP
-                pid_ki         = config.CS1_AUTOCUT_PID_KI
-                pid_kd         = config.CS1_AUTOCUT_PID_KD
-                idle_current   = config.CS1_AUTOCUT_IDLE_CURRENT_A
-                approach_speed = config.CS1_AUTOCUT_APPROACH_SPEED
-            else:
-                target_current = config.AUTOCUT_TARGET_CURRENT_A
-                pid_kp         = config.AUTOCUT_PID_KP
-                pid_ki         = config.AUTOCUT_PID_KI
-                pid_kd         = config.AUTOCUT_PID_KD
-                idle_current   = config.AUTOCUT_IDLE_CURRENT_A
-                approach_speed = config.AUTOCUT_APPROACH_SPEED
 
             cutter = AutonomousCutter(
                 chainsaw_id=chainsaw_id,
                 actuator_controller=self.actuator_controller,
                 sensor_reader=self.sensor_reader,
-                target_current=target_current,
-                pid_kp=pid_kp,
-                pid_ki=pid_ki,
-                pid_kd=pid_kd,
+                target_current=config.AUTOCUT_TARGET_CURRENT_A,
+                pid_kp=config.AUTOCUT_PID_KP,
+                pid_ki=config.AUTOCUT_PID_KI,
+                pid_kd=config.AUTOCUT_PID_KD,
                 max_speed=config.AUTOCUT_MAX_SPEED,
-                idle_current=idle_current,
+                idle_current=config.AUTOCUT_IDLE_CURRENT_A,
                 breakthrough_confirm_s=config.AUTOCUT_BREAKTHROUGH_CONFIRM_S,
                 loop_interval_s=config.AUTOCUT_LOOP_INTERVAL_S,
                 onoff_speed=self._chainsaw_onoff_speed,
                 set_blade_speed=ramp.set_target,
                 on_complete=self._on_autocut_complete,
-                approach_speed=approach_speed,
+                approach_speed=config.AUTOCUT_APPROACH_SPEED,
                 contact_confirm_reads=config.AUTOCUT_CONTACT_CONFIRM_READS,
                 max_cut_duration_s=config.AUTOCUT_MAX_CUT_DURATION_S,
             )

@@ -75,6 +75,7 @@ MOTOR2_CURRENT_FILE = '/run/serpent/motor2_current'
 AUTOCUT_CMD_FILE = '/run/serpent/autocut_cmd'
 AUTOCUT_STATUS_FILE = '/run/serpent/autocut_status'
 CHAINSAW_ONOFF_CMD_FILE = '/run/serpent/chainsaw_onoff_cmd'
+SERVO_CMD_FILE = '/run/serpent/servo_cmd'
 motor1_current_thread = None
 motor1_current_running = False
 motor2_current_thread = None
@@ -110,36 +111,44 @@ def status_update_worker():
 
 
 def motor1_current_worker():
-    """Push motor 1 current readings via WebSocket at 20 Hz."""
+    """Push motor 1 current readings via WebSocket at 1 Hz (average of 20 samples)."""
     global motor1_current_running
-    logger.info("Motor 1 current worker started (20 Hz)")
+    logger.info("Motor 1 current worker started (1 Hz, 20-sample avg)")
+    samples = []
     while motor1_current_running:
         try:
             with open(MOTOR1_CURRENT_FILE) as f:
-                value = float(f.read().strip())
-            socketio.emit('motor1_current_update', {'value': value}, namespace='/ws/status')
+                samples.append(float(f.read().strip()))
         except FileNotFoundError:
-            pass  # Bridge not running yet
+            pass
         except Exception as e:
             logger.debug(f"Motor 1 current read error: {e}")
-        time.sleep(0.05)  # 20 Hz
+        if len(samples) >= 20:
+            value = sum(samples) / len(samples)
+            samples.clear()
+            socketio.emit('motor1_current_update', {'value': round(value, 4)}, namespace='/ws/status')
+        time.sleep(0.05)  # sample at 20 Hz, emit at 1 Hz
     logger.info("Motor 1 current worker stopped")
 
 
 def motor2_current_worker():
-    """Push motor 2 current readings via WebSocket at 20 Hz."""
+    """Push motor 2 current readings via WebSocket at 1 Hz (average of 20 samples)."""
     global motor2_current_running
-    logger.info("Motor 2 current worker started (20 Hz)")
+    logger.info("Motor 2 current worker started (1 Hz, 20-sample avg)")
+    samples = []
     while motor2_current_running:
         try:
             with open(MOTOR2_CURRENT_FILE) as f:
-                value = float(f.read().strip())
-            socketio.emit('motor2_current_update', {'value': value}, namespace='/ws/status')
+                samples.append(float(f.read().strip()))
         except FileNotFoundError:
-            pass  # Bridge not running yet
+            pass
         except Exception as e:
             logger.debug(f"Motor 2 current read error: {e}")
-        time.sleep(0.05)  # 20 Hz
+        if len(samples) >= 20:
+            value = sum(samples) / len(samples)
+            samples.clear()
+            socketio.emit('motor2_current_update', {'value': round(value, 4)}, namespace='/ws/status')
+        time.sleep(0.05)  # sample at 20 Hz, emit at 1 Hz
     logger.info("Motor 2 current worker stopped")
 
 
@@ -582,11 +591,9 @@ def api_autocut_status():
 
 @app.route('/api/servo/set', methods=['POST'])
 def api_servo_set():
-    """Set servo position directly (robot Pi only)"""
+    """Set servo position via IPC to bridge service (robot Pi only)"""
     if config.DASHBOARD_ROLE != 'robot_pi':
         return jsonify({'error': 'Servo control only available on robot Pi'}), 403
-    if actuator_controller is None:
-        return jsonify({'error': 'Actuator controller not initialized'}), 503
     try:
         data = request.get_json()
         position = data.get('position')
@@ -595,16 +602,14 @@ def api_servo_set():
         position = float(position)
         if position < 0.0 or position > 1.0:
             return jsonify({'error': 'position must be 0.0 to 1.0'}), 400
-        success = actuator_controller.set_servo_position(position)
-        estop_info = actuator_controller.get_estop_info()
+        os.makedirs(os.path.dirname(SERVO_CMD_FILE), exist_ok=True)
+        tmp = SERVO_CMD_FILE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump({'position': position}, f)
+        os.replace(tmp, SERVO_CMD_FILE)
         angle = round(position * 180, 1)
-        return jsonify({
-            'success': success,
-            'position': position,
-            'angle': angle,
-            'estop_engaged': estop_info['engaged'],
-            'message': f'Servo set to {angle}°' if success else 'E-STOP engaged - servo blocked'
-        })
+        return jsonify({'success': True, 'position': position, 'angle': angle,
+                        'message': f'Servo command sent ({angle}°)'})
     except Exception as e:
         logger.error(f"Servo set failed: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

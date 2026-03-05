@@ -22,7 +22,7 @@ let currentDataBuffer = {
     timestamps: []
 };
 let isPaused = false;
-const MAX_DATA_POINTS = 600;  // 30 seconds at 20 Hz
+const MAX_DATA_POINTS = 60;  // 60 seconds at 1 Hz
 
 // Connect to WebSocket
 function connectWebSocket() {

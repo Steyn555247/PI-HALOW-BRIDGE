@@ -88,7 +88,7 @@ ACTIVE_MOTORS = 8  # All 8 motors used (0-7)
 USE_PCA9685 = os.getenv('USE_PCA9685', 'true').lower() == 'true'
 PCA9685_ADDRESS = int(os.getenv('PCA9685_ADDRESS', '0x40'), 16)
 PCA9685_CHANNELS = int(os.getenv('PCA9685_CHANNELS', '16'))
-SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '15'))  # Which channel (0-15) the servo is on
+SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '0'))  # Which channel (0-15) the servo is on
 
 # Multiplexer configuration for PCA9685 (if behind TCA9548A multiplexer)
 USE_MULTIPLEXER_FOR_SERVO = os.getenv('USE_MULTIPLEXER_FOR_SERVO', 'true').lower() == 'true'
@@ -158,14 +158,6 @@ AUTOCUT_PID_KD                = float(os.getenv('AUTOCUT_PID_KD', '0.0'))       
 AUTOCUT_MAX_SPEED             = int(os.getenv('AUTOCUT_MAX_SPEED', '150'))             # Max feed speed during PID cutting (0–800)
 AUTOCUT_APPROACH_SPEED        = int(os.getenv('AUTOCUT_APPROACH_SPEED', '600'))        # Feed speed during pre-contact approach (0–800)
 AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '1.0'))     # Contact/breakthrough OFFSET above baseline (A) → ~3.0A absolute
-# CS1-specific overrides (if needed for different blade characteristics)
-# Currently standardized to match CS2 - uncomment and modify if CS1 needs different tuning
-CS1_AUTOCUT_TARGET_CURRENT_A  = float(os.getenv('CS1_AUTOCUT_TARGET_CURRENT_A', '1.5'))    # CS1 PID target OFFSET above baseline (A)
-CS1_AUTOCUT_PID_KP            = float(os.getenv('CS1_AUTOCUT_PID_KP', '80.0'))             # CS1 proportional gain
-CS1_AUTOCUT_PID_KI            = float(os.getenv('CS1_AUTOCUT_PID_KI', '20.0'))             # CS1 integral gain
-CS1_AUTOCUT_PID_KD            = float(os.getenv('CS1_AUTOCUT_PID_KD', '0.0'))              # CS1 derivative gain
-CS1_AUTOCUT_IDLE_CURRENT_A    = float(os.getenv('CS1_AUTOCUT_IDLE_CURRENT_A', '1.0'))      # CS1 contact/breakthrough OFFSET above baseline (A)
-CS1_AUTOCUT_APPROACH_SPEED    = int(os.getenv('CS1_AUTOCUT_APPROACH_SPEED', '600'))        # CS1 pre-contact approach speed (0–800)
 # Timing
 AUTOCUT_BREAKTHROUGH_CONFIRM_S = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '1.0'))  # Seconds at idle to confirm cut
 AUTOCUT_LOOP_INTERVAL_S       = float(os.getenv('AUTOCUT_LOOP_INTERVAL_S', '0.05'))         # Control loop rate (20 Hz)
