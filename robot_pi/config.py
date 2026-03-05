@@ -91,9 +91,9 @@ PCA9685_CHANNELS = int(os.getenv('PCA9685_CHANNELS', '16'))
 SERVO_CHANNEL = int(os.getenv('SERVO_CHANNEL', '15'))  # Which channel (0-15) the servo is on
 
 # Multiplexer configuration for PCA9685 (if behind TCA9548A multiplexer)
-USE_MULTIPLEXER_FOR_SERVO = os.getenv('USE_MULTIPLEXER_FOR_SERVO', 'false').lower() == 'true'
+USE_MULTIPLEXER_FOR_SERVO = os.getenv('USE_MULTIPLEXER_FOR_SERVO', 'true').lower() == 'true'
 MUX_ADDRESS = int(os.getenv('MUX_ADDRESS', '0x70'), 16)
-PCA9685_MUX_CHANNEL = int(os.getenv('PCA9685_MUX_CHANNEL', '7'))  # Multiplexer channel (0-7)
+PCA9685_MUX_CHANNEL = int(os.getenv('PCA9685_MUX_CHANNEL', '4'))  # Multiplexer channel (0-7)
 
 # Servo pulse width range (microseconds) for AITRIP 35KG servo
 SERVO_MIN_PULSE = int(os.getenv('SERVO_MIN_PULSE', '500'))   # 0° position (500us)
