@@ -59,10 +59,10 @@ class CommandExecutor:
         self.height = 0.0
         self.force = 0.0
 
-        # Chainsaw control - 90% power (720/800)
-        self._chainsaw_speed_multiplier = 720
-        self._chainsaw_onoff_speed = 720
-        self._climb_up_speed = 640  # 80% of max motor speed (800)
+        # Manual controller speeds are centralized in robot_pi/config.py
+        self._chainsaw_speed_multiplier = config.CHAINSAW_FEED_SPEED
+        self._chainsaw_onoff_speed = config.CHAINSAW_ONOFF_SPEED
+        self._climb_up_speed = config.CLIMB_UP_SPEED
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
 
@@ -475,7 +475,7 @@ class CommandExecutor:
                 if index == 0:
                     if value > 0:
                         logger.info("A button: Motor 0 UP (claw open)")
-                        self.actuator_controller.set_motor_speed(0, 760)  # 95% forward/up
+                        self.actuator_controller.set_motor_speed(0, config.CLAW_OPEN_SPEED)
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
@@ -483,7 +483,7 @@ class CommandExecutor:
                 elif index == 1:
                     if value > 0:
                         logger.info("B button: Motor 0 DOWN (claw close)")
-                        self.actuator_controller.set_motor_speed(0, -760)  # 95% backward/down
+                        self.actuator_controller.set_motor_speed(0, config.CLAW_CLOSE_SPEED)
                     else:
                         self.actuator_controller.set_motor_speed(0, 0)  # Stop
 
@@ -554,7 +554,7 @@ class CommandExecutor:
                     if value > 0:
                         logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 7 forward)")
                         self.actuator_controller.set_servo_position(0.0056)  # 1° engage
-                        self.actuator_controller.set_motor_speed(7, 400)  # 50% forward (descend - direction swapped)
+                        self.actuator_controller.set_motor_speed(7, config.DESCEND_SPEED)
                     else:
                         logger.info("Dpad Down: Brake RELEASE (servo to 60°) + Motor 7 STOP")
                         self.actuator_controller.set_motor_speed(7, 0)  # Stop motor first
@@ -622,7 +622,6 @@ class CommandExecutor:
         # Map chainsaw_id to motor: 1→Motor 2, 2→Motor 3
         motor_id = 1 + chainsaw_id  # 1→2, 2→3
 
-        # 90% power = 720
         speed = self._chainsaw_speed_multiplier
 
         if direction == 'up' or direction == 'down':
@@ -704,10 +703,10 @@ class CommandExecutor:
 
         if direction == 'left':
             logger.info("Traverse LEFT: Motor 6 forward")
-            self.actuator_controller.set_motor_speed(6, 400)  # 50% forward
+            self.actuator_controller.set_motor_speed(6, config.TRAVERSE_SPEED)
         elif direction == 'right':
             logger.info("Traverse RIGHT: Motor 6 backward")
-            self.actuator_controller.set_motor_speed(6, -400)  # 50% backward
+            self.actuator_controller.set_motor_speed(6, -config.TRAVERSE_SPEED)
         else:  # stop
             logger.info("Traverse STOP: Motor 6")
             self.actuator_controller.set_motor_speed(6, 0)
@@ -735,7 +734,7 @@ class CommandExecutor:
             success = self.actuator_controller.set_servo_position(0.0056)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
-            self.actuator_controller.set_motor_speed(7, 400)  # 50% forward (descend - direction swapped)
+            self.actuator_controller.set_motor_speed(7, config.DESCEND_SPEED)
         else:  # release
             # 60 degrees = 60/180 = 0.3333 position
             logger.info("Brake RELEASE: Motor 7 STOP + Servo to 60°")

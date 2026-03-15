@@ -90,6 +90,17 @@ AUTOCUT_BREAKTHROUGH_CONFIRM_S   = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM
 AUTOCUT_DOUBLE_PRESS_WINDOW_S    = float(os.getenv('AUTOCUT_DOUBLE_PRESS_WINDOW_S', '0.6'))
 AUTOCUT_LOOP_INTERVAL_S          = float(os.getenv('AUTOCUT_LOOP_INTERVAL_S', '0.05'))
 
+# Manual controller motor speeds (single tuning location)
+# All speeds use the Motoron range: -800..+800
+MAX_MOTOR_SPEED = int(os.getenv('MAX_MOTOR_SPEED', '800'))
+CLAW_OPEN_SPEED = int(os.getenv('CLAW_OPEN_SPEED', '760'))                 # +95%
+CLAW_CLOSE_SPEED = int(os.getenv('CLAW_CLOSE_SPEED', '-760'))              # -95%
+CHAINSAW_FEED_SPEED = int(os.getenv('CHAINSAW_FEED_SPEED', '720'))         # 90% magnitude
+CHAINSAW_ONOFF_SPEED = int(os.getenv('CHAINSAW_ONOFF_SPEED', '720'))       # 90% magnitude
+CLIMB_UP_SPEED = int(os.getenv('CLIMB_UP_SPEED', '640'))                   # 80% magnitude
+DESCEND_SPEED = int(os.getenv('DESCEND_SPEED', '400'))                     # 50% magnitude
+TRAVERSE_SPEED = int(os.getenv('TRAVERSE_SPEED', '400'))                   # 50% magnitude
+
 # Current sensor parameters
 CURRENT_SENSOR_SHUNT_OHMS = float(os.getenv('CURRENT_SENSOR_SHUNT_OHMS', '0.001'))  # 1mΩ shunt
 CURRENT_SENSOR_MAX_EXPECTED_AMPS = float(os.getenv('CURRENT_SENSOR_MAX_EXPECTED_AMPS', '50.0'))
