@@ -62,6 +62,7 @@ class CommandExecutor:
         # Chainsaw control - 90% power (720/800)
         self._chainsaw_speed_multiplier = 720
         self._chainsaw_onoff_speed = 720
+        self._climb_up_speed = 640  # 80% of max motor speed (800)
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
 
@@ -681,7 +682,7 @@ class CommandExecutor:
 
         if direction == 'up':
             logger.info("Hoist UP: Motor 7 backward")
-            self.actuator_controller.set_motor_speed(7, -400)  # 50% backward (direction swapped)
+            self.actuator_controller.set_motor_speed(7, -self._climb_up_speed)  # 80% backward (direction swapped)
         else:  # stop
             logger.info("Hoist STOP: Motor 7")
             self.actuator_controller.set_motor_speed(7, 0)
