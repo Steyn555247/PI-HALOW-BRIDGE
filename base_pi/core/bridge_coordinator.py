@@ -221,10 +221,13 @@ class HaLowBridge:
         """Callback when telemetry is received from Robot Pi."""
         # Extract E-STOP state (both engaged flag and reason)
         estop_info = telemetry.get('estop', {})
-        self.state.update_estop_state(
-            estop_info.get('engaged'),
-            estop_info.get('reason')
-        )
+        estop_engaged = estop_info.get('engaged')
+        self.state.update_estop_state(estop_engaged, estop_info.get('reason'))
+
+        # If robot confirms it is still engaged, sync BackendClient dedup so a
+        # failed clear (e.g. robot rejected due to stale control) can be retried.
+        if estop_engaged is True:
+            self.backend_client.sync_estop_engaged()
 
         # Compute RTT from pong data if present
         pong = telemetry.get('pong')

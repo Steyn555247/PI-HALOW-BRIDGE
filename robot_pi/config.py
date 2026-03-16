@@ -83,7 +83,7 @@ MOTORS_PER_BOARD = 2
 TOTAL_MOTORS = NUM_MOTORON_BOARDS * MOTORS_PER_BOARD
 ACTIVE_MOTORS = 8  # All 8 motors used (0-7)
 # Manual controller motor speeds (Motoron range: -800..800)
-CLIMB_UP_SPEED = int(os.getenv('CLIMB_UP_SPEED', '640'))  # 80% magnitude
+CLIMB_UP_SPEED = int(os.getenv('CLIMB_UP_SPEED', '760'))  # 95% magnitude
 
 # Servo Configuration (PCA9685 I2C PWM Controller)
 # PCA9685 16-channel servo driver - zero jitter, supports up to 16 servos

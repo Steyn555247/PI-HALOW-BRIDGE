@@ -84,6 +84,13 @@ class StateManager:
         if reason is not None:
             self.last_robot_estop_reason = reason
 
+        # Sync dedup: if robot telemetry confirms still engaged but we already
+        # recorded a clear as sent, the robot rejected that clear (e.g. stale
+        # control age). Reset so the next clear attempt is not blocked.
+        if engaged is True and self._last_emergency_command_sent is False:
+            logger.info("E-STOP dedup sync: robot confirms engaged after clear attempt — allowing retry")
+            self._last_emergency_command_sent = True
+
     def get_estop_state(self) -> Optional[bool]:
         """Get last known E-STOP state from Robot Pi."""
         return self.last_robot_estop_state

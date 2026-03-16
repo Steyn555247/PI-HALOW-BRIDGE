@@ -57,6 +57,12 @@ class BackendClient:
         self._last_estop_event_active: Optional[bool] = None
         self._estop_event_window_s: float = 0.1  # 100ms window to catch near-simultaneous events
 
+        # Track when a clear was last forwarded so we can suppress the legacy
+        # emergency_toggle (ENGAGE) that fires on every button press — including clear presses.
+        # Without this, toggle can arrive after the clear and immediately re-engage the robot.
+        self._last_clear_forwarded_time: float = 0.0
+        self._clear_suppress_s: float = 2.0  # suppress toggle re-engage for 2s after clear
+
         self._setup_handlers()
 
         logger.info(f"BackendClient initialized (url={backend_url})")
@@ -89,7 +95,15 @@ class BackendClient:
             """
             Legacy event from backend - always means ENGAGE.
             Routed through unified handler to prevent duplicates.
+
+            SUPPRESSED for a short window after a clear is forwarded: the backend
+            fires emergency_toggle on every button press (including clear presses),
+            so without suppression it can race and re-engage the robot right after
+            the clear goes through.
             """
+            if time.time() - self._last_clear_forwarded_time < self._clear_suppress_s:
+                logger.debug("emergency_toggle: suppressed — clear recently forwarded, ignoring re-engage")
+                return
             logger.info("Received emergency_toggle event")
             self._handle_emergency_event(True, 'emergency_toggle')
 
@@ -198,8 +212,25 @@ class BackendClient:
             return
 
         self._last_estop_event_active = active
+
+        # Track when a clear was forwarded so emergency_toggle suppression works
+        if not active:
+            self._last_clear_forwarded_time = time.time()
+
         logger.info(f"E-STOP: forwarding {source} (active={active}) to robot")
         self.on_emergency_status(active, source)
+
+    def sync_estop_engaged(self):
+        """
+        Reset event dedup when robot telemetry confirms E-STOP is still engaged.
+
+        Called by bridge_coordinator when telemetry arrives with engaged=True after
+        we forwarded a clear — meaning the robot rejected the clear. Resetting allows
+        the next clear attempt to pass the dedup check.
+        """
+        if self._last_estop_event_active is False:
+            logger.info("E-STOP event dedup sync: robot still engaged — resetting to allow clear retry")
+            self._last_estop_event_active = True
 
     def connect(self):
         """Connect to backend Socket.IO server."""

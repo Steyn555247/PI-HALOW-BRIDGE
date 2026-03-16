@@ -721,7 +721,7 @@ class CommandExecutor:
                     if value > 0:
                         logger.info("Dpad Down: Brake ENGAGE (servo to 1°) + Descent (Motor 6 backward)")
                         self.actuator_controller.set_servo_position(0.0056)  # 1° engage
-                        self.actuator_controller.set_motor_speed(6, -800)
+                        self.actuator_controller.set_motor_speed(6, -720)
                     else:
                         logger.info("Dpad Down: Brake RELEASE (servo to 60°) + Motor 6 STOP")
                         self.actuator_controller.set_motor_speed(6, 0)  # Stop motor first
@@ -909,7 +909,7 @@ class CommandExecutor:
             success = self.actuator_controller.set_servo_position(0.0056)
             if not success:
                 logger.warning("Brake ENGAGE failed - servo command returned False")
-            self.actuator_controller.set_motor_speed(6, -800)
+            self.actuator_controller.set_motor_speed(6, -720)
         else:  # release
             # 60 degrees = 60/180 = 0.3333 position
             logger.info("Brake RELEASE: Motor 6 STOP + Servo to 60°")
