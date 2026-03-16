@@ -25,12 +25,12 @@ logger = logging.getLogger(__name__)
 class ControlForwarder:
     """Forwards authenticated control commands to Robot Pi over TCP"""
 
-    def __init__(self, robot_ip: str, control_port: int, reconnect_delay: float = 0.5,
+    def __init__(self, robot_ip: str, control_port: int, reconnect_delay: float = 0.1,
                  framer: Optional[SecureFramer] = None,
                  on_command_sent: Optional[callable] = None):
         self.robot_ip = robot_ip
         self.control_port = control_port
-        self.reconnect_delay = reconnect_delay  # Reduced for faster recovery
+        self.reconnect_delay = reconnect_delay  # Phase 1: 0.5s → 0.1s for faster recovery
 
         # Use provided framer or create new one
         self.framer = framer or SecureFramer(role="base_pi_control")

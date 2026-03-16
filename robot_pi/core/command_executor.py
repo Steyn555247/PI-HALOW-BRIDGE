@@ -295,16 +295,35 @@ class CommandExecutor:
         logger.info("Motor timeout monitor loop stopped")
 
     def _stop_all_motors(self):
-        """Stop claw motors only (0-1). Chainsaw, traverse, hoist excluded from timeout."""
+        """
+        Soft-stop all motors on control loss.
+
+        Phase 1 (March 16): Extended from claws-only (0-1) to all motors (0-7).
+        Motors 4+5 (chainsaw on/off) are stopped via their ramp threads so
+        deceleration is graceful. All other motors are zeroed directly.
+        Motor 6 (hoist/ascender) has its Motoron hardware timeout disabled —
+        this call is the only software safety net for it during control loss.
+
+        Autocut: if an autonomous cutter is running it is stopped first so it
+        cannot fight the direct motor-zero commands on motors 2/3.
+        """
         try:
-            # Only stop claw motors (0-1)
-            # Excluded from timeout:
-            #   - Motor 2, 3: Chainsaw up/down (have explicit stop on release)
-            #   - Motor 4, 5: Chainsaw on/off (toggle, user controls)
-            #   - Motor 6: Hoist (has explicit stop on release)
-            #   - Motor 7: Traverse (has explicit stop on release)
-            for motor_id in range(2):  # Only motors 0 and 1
+            # Stop any active autonomous cutters before zeroing their motors.
+            # _autocut1/2_active is read without the lock (racy by one iteration
+            # at most) but _stop_autocut() is idempotent and lock-safe.
+            if self._autocut1_active:
+                self._stop_autocut(1)
+            if self._autocut2_active:
+                self._stop_autocut(2)
+
+            # Motors 0-3, 6-7: direct zero command
+            for motor_id in [0, 1, 2, 3, 6, 7]:
                 self.actuator_controller.set_motor_speed(motor_id, 0)
+
+            # Motors 4-5 (chainsaw on/off): use ramp so deceleration is smooth
+            self._cs1_ramp.set_target(0)
+            self._cs2_ramp.set_target(0)
+
         except Exception as e:
             logger.error(f"Error stopping motors: {e}")
 

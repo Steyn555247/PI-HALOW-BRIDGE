@@ -12,7 +12,7 @@ MAX_FRAME_SIZE = 16384          # 16KB max authenticated frame payload
 WATCHDOG_TIMEOUT_S = 5.0        # E-STOP if no control for this long
 STARTUP_GRACE_S = 30.0          # Grace period before requiring control
 ESTOP_CLEAR_MAX_AGE_S = 1.5     # Control must be this fresh to clear E-STOP
-HEARTBEAT_INTERVAL_S = 1.0      # Ping frequency
+HEARTBEAT_INTERVAL_S = 0.2      # Ping frequency (Phase 2: 1.0s → 0.2s for faster miss detection)
 RECONNECT_DELAY_S = 2.0         # Delay between reconnect attempts
 
 # E-STOP clear confirmation string (must match exactly)

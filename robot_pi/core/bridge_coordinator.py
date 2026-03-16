@@ -36,7 +36,7 @@ from robot_pi.video_capture import VideoCapture
 from robot_pi.sensor_reader import SensorReader
 from robot_pi.actuator_controller import ActuatorController
 from common.framing import SecureFramer
-from common.constants import ESTOP_REASON_INTERNAL_ERROR
+from common.constants import ESTOP_REASON_INTERNAL_ERROR, HEARTBEAT_INTERVAL_S
 from common.logging_config import setup_logging
 
 # Phase 5 extracted modules
@@ -410,24 +410,54 @@ class HaLowBridge:
         Control receiver loop.
 
         Accepts connections and receives commands via ControlServer.
+
+        Phase 2 (March 16): Heartbeat-miss detection. Base Pi sends pings every
+        HEARTBEAT_INTERVAL_S (0.2s). If no frame of any kind arrives within
+        2 × HEARTBEAT_INTERVAL_S (0.4s) after control has been established,
+        motors are soft-stopped. This catches "TCP open but silent" failures
+        that the socket read timeout alone may not catch quickly enough.
+        The Phase 1 motor timeout loop (0.5s) is a redundant fallback.
         """
         logger.info("Control receiver thread started")
+
+        # Heartbeat miss threshold: 2 pings worth of silence = loss of signal
+        heartbeat_miss_s = 2.0 * HEARTBEAT_INTERVAL_S  # 0.4s
 
         # Start the server - retry on failure
         while self.running and not self.control_server.start_server():
             logger.error("Retrying control server startup in 2 seconds...")
             time.sleep(2.0)
 
+        heartbeat_miss_active = False  # True while we are in a miss event
+
         while self.running:
             try:
                 # Accept connection if not connected
                 if not self.control_server.is_connected():
+                    heartbeat_miss_active = False  # Reset on every (re)connect
                     if not self.control_server.accept_connection():
                         # Timeout or error - continue loop
                         continue
 
                 # Receive command (includes timeout handling)
                 self.control_server.receive_command()
+
+                # Heartbeat-miss detection (only once control has been established)
+                if self.control_server.is_control_established():
+                    control_age = self.control_server.get_control_age()
+
+                    if control_age > heartbeat_miss_s:
+                        if not heartbeat_miss_active:
+                            logger.warning(
+                                f"Heartbeat miss: no frame for {control_age:.2f}s "
+                                f"(threshold={heartbeat_miss_s:.2f}s) — soft-stopping motors"
+                            )
+                            self.command_executor._stop_all_motors()
+                            heartbeat_miss_active = True
+                    else:
+                        if heartbeat_miss_active:
+                            logger.info("Heartbeat restored — control resumed")
+                            heartbeat_miss_active = False
 
             except Exception as e:
                 logger.error(f"Unexpected error in control loop: {e}")

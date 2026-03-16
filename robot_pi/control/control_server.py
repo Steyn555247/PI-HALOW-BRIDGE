@@ -6,6 +6,9 @@ Robot Pi runs as the SERVER, Base Pi's control_forwarder connects as the CLIENT.
 
 PHASE 5 OPTIMIZATION:
 - Reduced timeouts for <2s failover (0.5s accept, 1.0s read, down from 2.0s + 5.0s)
+
+PHASE 1 (March 16) CONNECTIVITY FIX:
+- Read timeout reduced 1.0s → 0.25s for faster control-loss detection (~0.5s gap vs 2-3s)
 - Exponential backoff (1s → 32s)
 - Circuit breaker pattern
 - TCP keepalive for zombie detection
@@ -150,8 +153,8 @@ class ControlServer:
 
             client_sock, addr = self.server_socket.accept()
 
-            # PHASE 5 FIX: 5.0s → 1.0s for faster failover
-            client_sock.settimeout(1.0)
+            # Phase 1 fix: 1.0s → 0.25s for faster loss detection
+            client_sock.settimeout(0.25)
 
             # Configure TCP keepalive
             configure_tcp_keepalive(client_sock, idle=60, interval=10, count=3)
@@ -167,7 +170,7 @@ class ControlServer:
             self.backoff.reset()
             self.circuit_breaker.record_success()
 
-            logger.info(f"Accepted control connection from {addr} (read timeout: 1.0s)")
+            logger.info(f"Accepted control connection from {addr} (read timeout: 0.25s)")
             return True
 
         except socket.timeout:
@@ -210,7 +213,7 @@ class ControlServer:
             try:
                 payload, seq = self.framer.read_frame_from_socket(
                     self.client_socket,
-                    timeout=1.0
+                    timeout=0.25
                 )
 
                 # Update control timing
