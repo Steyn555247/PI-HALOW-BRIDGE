@@ -303,7 +303,7 @@ class AutonomousCutter:
             f"contact_confirm={self.contact_confirm_reads} "
             f"max_cut={self.max_cut_duration_s}s)"
         )
-        onoff_sign = 1 if self.chainsaw_id == 2 else -1
+        onoff_sign = 1
         self._set_onoff(onoff_sign * self.onoff_speed)
 
         self._running = True

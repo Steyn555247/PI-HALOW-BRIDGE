@@ -160,6 +160,7 @@ AUTOCUT_PID_KD                = float(os.getenv('AUTOCUT_PID_KD', '0.0'))       
 AUTOCUT_BLADE_SPEED           = int(os.getenv('AUTOCUT_BLADE_SPEED', '680'))           # Blade on/off speed during autonomous cutting (lower = less EMI)
 AUTOCUT_MAX_SPEED             = int(os.getenv('AUTOCUT_MAX_SPEED', '200'))             # Max feed speed during PID cutting (0–800)
 AUTOCUT_APPROACH_SPEED        = int(os.getenv('AUTOCUT_APPROACH_SPEED', '200'))        # Feed speed during pre-contact approach (0–800)
+AUTOCUT_CS1_APPROACH_SPEED    = int(os.getenv('AUTOCUT_CS1_APPROACH_SPEED', '10'))     # CS1-specific approach speed override (0–800)
 AUTOCUT_IDLE_CURRENT_A        = float(os.getenv('AUTOCUT_IDLE_CURRENT_A', '1.0'))     # Contact/breakthrough OFFSET above baseline (A) → ~3.0A absolute
 # Timing
 AUTOCUT_BREAKTHROUGH_CONFIRM_S = float(os.getenv('AUTOCUT_BREAKTHROUGH_CONFIRM_S', '1.0'))  # Seconds at idle to confirm cut

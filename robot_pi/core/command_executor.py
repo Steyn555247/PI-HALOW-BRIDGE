@@ -948,7 +948,7 @@ class CommandExecutor:
                 onoff_speed=config.AUTOCUT_BLADE_SPEED,
                 set_blade_speed=ramp.set_target,
                 on_complete=self._on_autocut_complete,
-                approach_speed=config.AUTOCUT_APPROACH_SPEED,
+                approach_speed=config.AUTOCUT_CS1_APPROACH_SPEED if chainsaw_id == 1 else config.AUTOCUT_APPROACH_SPEED,
                 contact_confirm_reads=config.AUTOCUT_CONTACT_CONFIRM_READS,
                 max_cut_duration_s=config.AUTOCUT_MAX_CUT_DURATION_S,
             )
