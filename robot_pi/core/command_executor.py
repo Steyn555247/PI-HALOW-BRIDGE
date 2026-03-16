@@ -175,6 +175,7 @@ class CommandExecutor:
         # Chainsaw control - 90% power (720/800)
         self._chainsaw_speed_multiplier = 100  # Reduced from 200 to 100 (half speed)
         self._chainsaw_onoff_speed = 780
+        self._climb_up_speed = config.CLIMB_UP_SPEED
 
         # Soft-start/stop ramps for chainsaw on/off motors.
         # CS1 = Motor 5, CS2 = Motor 4. Ramp threads start immediately
@@ -823,7 +824,7 @@ class CommandExecutor:
 
         if direction == 'up':
             logger.info("Hoist UP: Motor 6 forward")
-            self.actuator_controller.set_motor_speed(6, 800)
+            self.actuator_controller.set_motor_speed(6, self._climb_up_speed)
         else:  # stop
             logger.info("Hoist STOP: Motor 6")
             self.actuator_controller.set_motor_speed(6, 0)
