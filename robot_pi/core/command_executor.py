@@ -296,36 +296,49 @@ class CommandExecutor:
 
     def _stop_all_motors(self):
         """
-        Soft-stop all motors on control loss.
+        Soft-stop motors 0-5 on input timeout.
 
-        Phase 1 (March 16): Extended from claws-only (0-1) to all motors (0-7).
-        Motors 4+5 (chainsaw on/off) are stopped via their ramp threads so
-        deceleration is graceful. All other motors are zeroed directly.
-        Motor 6 (hoist/ascender) has its Motoron hardware timeout disabled —
-        this call is the only software safety net for it during control loss.
+        Motors 6 (hoist) and 7 (traverse) are intentionally excluded — they
+        are "move while pressed" motors that the operator holds for extended
+        periods. They should only be zeroed on a genuine connection loss, which
+        is handled separately in bridge_coordinator._control_receiver_loop via
+        the heartbeat-miss path (see _stop_positional_motors()).
 
-        Autocut: if an autonomous cutter is running it is stopped first so it
-        cannot fight the direct motor-zero commands on motors 2/3.
+        Autocut: active autonomous cutters are stopped first to prevent
+        fighting on motors 2/3.
         """
         try:
             # Stop any active autonomous cutters before zeroing their motors.
-            # _autocut1/2_active is read without the lock (racy by one iteration
-            # at most) but _stop_autocut() is idempotent and lock-safe.
             if self._autocut1_active:
                 self._stop_autocut(1)
             if self._autocut2_active:
                 self._stop_autocut(2)
 
-            # Motors 0-3, 6-7: direct zero command
-            for motor_id in [0, 1, 2, 3, 6, 7]:
+            # Motors 0-3: direct zero
+            for motor_id in [0, 1, 2, 3]:
                 self.actuator_controller.set_motor_speed(motor_id, 0)
 
-            # Motors 4-5 (chainsaw on/off): use ramp so deceleration is smooth
+            # Motors 4-5 (chainsaw on/off): graceful deceleration via ramp
             self._cs1_ramp.set_target(0)
             self._cs2_ramp.set_target(0)
 
         except Exception as e:
             logger.error(f"Error stopping motors: {e}")
+
+    def _stop_positional_motors(self):
+        """
+        Zero hoist (motor 6) and traverse (motor 7) on connection loss only.
+
+        Called exclusively by the heartbeat-miss path in bridge_coordinator,
+        not by the regular input-timeout loop. Motor 6 (hoist/ascender) has
+        its Motoron hardware timeout explicitly disabled, so this is the only
+        software safety net for it during a real connection drop.
+        """
+        try:
+            self.actuator_controller.set_motor_speed(6, 0)
+            self.actuator_controller.set_motor_speed(7, 0)
+        except Exception as e:
+            logger.error(f"Error stopping positional motors: {e}")
 
     def start_chainsaw_timeout_monitor(self):
         """Start the chainsaw timeout monitor thread."""
