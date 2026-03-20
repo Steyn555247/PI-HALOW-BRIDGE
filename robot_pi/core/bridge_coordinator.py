@@ -452,7 +452,7 @@ class HaLowBridge:
                                 f"Heartbeat miss: no frame for {control_age:.2f}s "
                                 f"(threshold={heartbeat_miss_s:.2f}s) — soft-stopping motors"
                             )
-                            self.command_executor._stop_all_motors()
+                            self.command_executor._stop_all_motors(force_stop_chainsaws=True)
                             self.command_executor._stop_positional_motors()
                             heartbeat_miss_active = True
                     else:

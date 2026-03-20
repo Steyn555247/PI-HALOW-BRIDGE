@@ -192,6 +192,8 @@ class CommandExecutor:
         )
         self._chainsaw1_axis_value = 0.0  # Track current axis value
         self._chainsaw2_axis_value = 0.0
+        self._chainsaw1_onoff_active = False
+        self._chainsaw2_onoff_active = False
 
         # R1 button state for fast feed travel
         self._r1_pressed = False
@@ -294,7 +296,7 @@ class CommandExecutor:
 
         logger.info("Motor timeout monitor loop stopped")
 
-    def _stop_all_motors(self):
+    def _stop_all_motors(self, force_stop_chainsaws: bool = False):
         """
         Soft-stop motors 0-5 on input timeout.
 
@@ -306,6 +308,13 @@ class CommandExecutor:
 
         Autocut: active autonomous cutters are stopped first to prevent
         fighting on motors 2/3.
+
+        Args:
+            force_stop_chainsaws: When True, also stop latched chainsaw on/off
+                motors 4/5. This should be used for genuine control loss such
+                as heartbeat misses or disconnects. The regular idle timeout
+                leaves a pressed chainsaw button running until its matching
+                release command arrives.
         """
         try:
             # Stop any active autonomous cutters before zeroing their motors.
@@ -318,9 +327,13 @@ class CommandExecutor:
             for motor_id in [0, 1, 2, 3]:
                 self.actuator_controller.set_motor_speed(motor_id, 0)
 
-            # Motors 4-5 (chainsaw on/off): graceful deceleration via ramp
-            self._cs1_ramp.set_target(0)
-            self._cs2_ramp.set_target(0)
+            # Motors 4-5 (chainsaw on/off): preserve explicit press/release
+            # semantics during the generic idle timeout, but always stop them
+            # on a real control-loss event.
+            if force_stop_chainsaws or not self._chainsaw1_onoff_active:
+                self._cs1_ramp.set_target(0)
+            if force_stop_chainsaws or not self._chainsaw2_onoff_active:
+                self._cs2_ramp.set_target(0)
 
         except Exception as e:
             logger.error(f"Error stopping motors: {e}")
@@ -769,10 +782,18 @@ class CommandExecutor:
         # Support both 'on'/'off' and 'press'/'release' for compatibility
         if action in ('on', 'press'):
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} ON (soft-start)")
+            if chainsaw_id == 1:
+                self._chainsaw1_onoff_active = True
+            else:
+                self._chainsaw2_onoff_active = True
             onoff_sign = 1
             ramp.set_target(onoff_sign * self._chainsaw_onoff_speed)
         else:  # 'off' or 'release'
             logger.info(f"Chainsaw {chainsaw_id}: Motor {motor_id} OFF (soft-stop)")
+            if chainsaw_id == 1:
+                self._chainsaw1_onoff_active = False
+            else:
+                self._chainsaw2_onoff_active = False
             ramp.set_target(0)
 
     def _handle_chainsaw_move(self, data: Dict[str, Any]):
@@ -785,7 +806,7 @@ class CommandExecutor:
 
         Note: Continuous analog stick control is handled in _handle_input_event.
         This method is for discrete button/command-based control.
-        Uses same timeout system as axis control (1.5 seconds max).
+        Uses same timeout system as axis control (0.75 seconds max).
 
         Args:
             data: Command data with chainsaw_id and direction (up/down/stop)
@@ -810,11 +831,11 @@ class CommandExecutor:
                 if chainsaw_id == 1:
                     if self._chainsaw1_start_time is None:
                         self._chainsaw1_start_time = time.time()
-                        logger.info(f"Chainsaw {chainsaw_id} timer started (1.5s timeout)")
+                        logger.info(f"Chainsaw {chainsaw_id} timer started ({self._chainsaw_timeout_s:.2f}s timeout)")
                 else:
                     if self._chainsaw2_start_time is None:
                         self._chainsaw2_start_time = time.time()
-                        logger.info(f"Chainsaw {chainsaw_id} timer started (1.5s timeout)")
+                        logger.info(f"Chainsaw {chainsaw_id} timer started ({self._chainsaw_timeout_s:.2f}s timeout)")
 
                 # Set motor speed (inside lock so timeout can't race)
                 # CS1 Motor 2: +speed = down, -speed = up
@@ -1015,6 +1036,7 @@ class CommandExecutor:
                     self._autocut_cs1.stop()
                     self._autocut_cs1 = None
                 self._autocut1_active = False
+                self._chainsaw1_onoff_active = False
                 with self._chainsaw_lock:
                     self._chainsaw1_start_time = None
             else:
@@ -1022,6 +1044,7 @@ class CommandExecutor:
                     self._autocut_cs2.stop()
                     self._autocut_cs2 = None
                 self._autocut2_active = False
+                self._chainsaw2_onoff_active = False
                 with self._chainsaw_lock:
                     self._chainsaw2_start_time = None
 
