@@ -14,7 +14,9 @@ THRESHOLDS = {
     'control_age_ms': {'green': 2000, 'yellow': 4000},
     'motor_current': {'green': 6.0, 'yellow': 8.0},
     'voltage': {'green': 11.5, 'yellow': 10.5},  # Below yellow is red
-    'total_current': {'green': 20.0, 'yellow': 30.0}
+    'total_current': {'green': 20.0, 'yellow': 30.0},
+    'cpu_usage': {'green': 70.0, 'yellow': 85.0},   # % above yellow is red
+    'cpu_temp': {'green': 70.0, 'yellow': 80.0},    # °C above yellow is red
 }
 
 
@@ -106,6 +108,22 @@ def compute_health_score(telemetry: Dict[str, Any]) -> int:
             score -= 15
         elif total_current > THRESHOLDS['total_current']['green']:
             score -= 5
+
+    # CPU usage and temperature penalties (Robot Pi and Base Pi)
+    for cpu_key in ('robot_cpu', 'base_cpu'):
+        cpu = telemetry.get(cpu_key, {})
+        usage = cpu.get('usage_percent')
+        temp = cpu.get('temp_c')
+        if usage is not None:
+            if usage > THRESHOLDS['cpu_usage']['yellow']:
+                score -= 10
+            elif usage > THRESHOLDS['cpu_usage']['green']:
+                score -= 5
+        if temp is not None:
+            if temp > THRESHOLDS['cpu_temp']['yellow']:
+                score -= 10
+            elif temp > THRESHOLDS['cpu_temp']['green']:
+                score -= 5
 
     return max(0, score)
 
@@ -218,6 +236,42 @@ def check_thresholds(telemetry: Dict[str, Any]) -> List[Dict[str, Any]]:
             'severity': 'red',
             'message': f'E-STOP: {estop.get("reason", "unknown")}'
         })
+
+    # CPU usage and temperature checks (Robot Pi and Base Pi)
+    for cpu_key, label in (('robot_cpu', 'Robot'), ('base_cpu', 'Base')):
+        cpu = telemetry.get(cpu_key, {})
+        usage = cpu.get('usage_percent')
+        temp = cpu.get('temp_c')
+        if usage is not None:
+            if usage > THRESHOLDS['cpu_usage']['yellow']:
+                violations.append({
+                    'metric': f'{cpu_key}_usage',
+                    'value': usage,
+                    'severity': 'red',
+                    'message': f'{label} Pi CPU critical: {usage:.0f}%'
+                })
+            elif usage > THRESHOLDS['cpu_usage']['green']:
+                violations.append({
+                    'metric': f'{cpu_key}_usage',
+                    'value': usage,
+                    'severity': 'yellow',
+                    'message': f'{label} Pi CPU high: {usage:.0f}%'
+                })
+        if temp is not None:
+            if temp > THRESHOLDS['cpu_temp']['yellow']:
+                violations.append({
+                    'metric': f'{cpu_key}_temp',
+                    'value': temp,
+                    'severity': 'red',
+                    'message': f'{label} Pi temp critical: {temp:.1f}°C'
+                })
+            elif temp > THRESHOLDS['cpu_temp']['green']:
+                violations.append({
+                    'metric': f'{cpu_key}_temp',
+                    'value': temp,
+                    'severity': 'yellow',
+                    'message': f'{label} Pi temp high: {temp:.1f}°C'
+                })
 
     return violations
 

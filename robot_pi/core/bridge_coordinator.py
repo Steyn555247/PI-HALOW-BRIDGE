@@ -28,6 +28,8 @@ import json
 import threading
 from typing import Optional
 
+import psutil
+
 # Add parent to path for common imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
@@ -466,6 +468,25 @@ class HaLowBridge:
                 self.control_server.close_client()
                 time.sleep(1.0)
 
+    def _read_cpu_stats(self) -> dict:
+        """Read CPU usage and temperature for this Pi."""
+        usage = psutil.cpu_percent(interval=None)
+        temp = None
+        try:
+            temps = psutil.sensors_temperatures()
+            zone = temps.get('cpu_thermal') or temps.get('coretemp') or []
+            if zone:
+                temp = round(zone[0].current, 1)
+        except Exception:
+            pass
+        if temp is None:
+            try:
+                with open('/sys/class/thermal/thermal_zone0/temp') as f:
+                    temp = round(int(f.read().strip()) / 1000.0, 1)
+            except Exception:
+                pass
+        return {'usage_percent': round(usage, 1), 'temp_c': temp}
+
     def _telemetry_sender_loop(self):
         """
         Telemetry sender loop.
@@ -514,6 +535,9 @@ class HaLowBridge:
                     'timestamp': time.time()
                 }
 
+                # Attach Robot Pi CPU stats
+                telemetry['robot_cpu'] = self._read_cpu_stats()
+
                 # Send telemetry
                 if not self.telemetry_sender.send_telemetry(telemetry):
                     # Send failed, connection will be closed and retry on next iteration
@@ -545,6 +569,7 @@ class HaLowBridge:
 
                 # Log status periodically (include sensor data for dashboard)
                 sensor_data = self.sensor_reader.get_all_data()
+                sensor_data['robot_cpu'] = self._read_cpu_stats()
                 video_stats = self.video_capture.get_stats() if self.video_capture else None
                 self.watchdog_monitor.log_status(
                     telemetry_connected=self.telemetry_sender.is_connected(),

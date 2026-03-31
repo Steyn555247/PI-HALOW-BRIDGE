@@ -374,6 +374,30 @@ function updateSensors(sensors) {
         setText('baro-temp', baro.temperature?.toFixed(1));
         setText('baro-alt', baro.altitude?.toFixed(1));
     }
+
+    updateCpuBadge('robot-cpu-usage', sensors.robot_cpu?.usage_percent, '%', 70, 85);
+    updateCpuBadge('robot-cpu-temp', sensors.robot_cpu?.temp_c, '°C', 70, 80);
+    updateCpuBadge('base-cpu-usage', sensors.base_cpu?.usage_percent, '%', 70, 85);
+    updateCpuBadge('base-cpu-temp', sensors.base_cpu?.temp_c, '°C', 70, 80);
+}
+
+function updateCpuBadge(id, value, unit, warnThreshold, critThreshold) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (value == null) {
+        el.textContent = `-- ${unit}`;
+        el.className = 'badge bg-secondary';
+        return;
+    }
+    el.textContent = `${value.toFixed(1)} ${unit}`;
+    el.classList.remove('bg-secondary', 'bg-success', 'bg-warning', 'bg-danger', 'text-dark');
+    if (value >= critThreshold) {
+        el.classList.add('bg-danger');
+    } else if (value >= warnThreshold) {
+        el.classList.add('bg-warning', 'text-dark');
+    } else {
+        el.classList.add('bg-success');
+    }
 }
 
 // ============================================================================

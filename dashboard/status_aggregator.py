@@ -173,6 +173,8 @@ def _collect_robot_status() -> Dict:
             status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
         if 'barometer' in log_status:
             status['sensors']['barometer'] = log_status['barometer']
+        if 'robot_cpu' in log_status:
+            status['sensors']['robot_cpu'] = log_status['robot_cpu']
 
         # Extract motor 1 external current sensor reading from logs
         if 'motor1_current' in log_status:
@@ -336,6 +338,10 @@ def _collect_base_status() -> Dict:
             status['sensors']['imu'] = _transform_imu_data(log_status['imu'])
         if 'barometer' in log_status:
             status['sensors']['barometer'] = log_status['barometer']
+        if 'robot_cpu' in log_status:
+            status['sensors']['robot_cpu'] = log_status['robot_cpu']
+        if 'base_cpu' in log_status:
+            status['sensors']['base_cpu'] = log_status['base_cpu']
 
         if 'motor1_current' in log_status:
             status['actuators']['motor1_current'] = log_status['motor1_current']

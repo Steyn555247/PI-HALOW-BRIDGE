@@ -129,6 +129,8 @@ class WatchdogMonitor:
                     status['imu'] = sensor_data['imu']
                 if 'barometer' in sensor_data:
                     status['barometer'] = sensor_data['barometer']
+                if 'robot_cpu' in sensor_data:
+                    status['robot_cpu'] = sensor_data['robot_cpu']
 
             # Add motor 1 external current sensor reading
             if motor1_current is not None:

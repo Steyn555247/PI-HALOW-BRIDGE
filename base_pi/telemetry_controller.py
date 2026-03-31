@@ -83,6 +83,10 @@ def format_for_controller(telemetry: Dict[str, Any]) -> Dict[str, Any]:
     alerts = check_thresholds(telemetry)
     alert_messages = [a['message'] for a in alerts[:3]]
 
+    # CPU stats
+    robot_cpu = telemetry.get('robot_cpu', {})
+    base_cpu = telemetry.get('base_cpu', {})
+
     # Timestamp
     timestamp = telemetry.get('timestamp', 0.0)
 
@@ -127,6 +131,14 @@ def format_for_controller(telemetry: Dict[str, Any]) -> Dict[str, Any]:
 
         # Motion
         'accel_magnitude': accel_mag,
+
+        # System resources
+        'system': {
+            'robot_cpu': round(robot_cpu.get('usage_percent') or 0, 1),
+            'robot_temp': round(robot_cpu.get('temp_c') or 0, 1),
+            'base_cpu': round(base_cpu.get('usage_percent') or 0, 1),
+            'base_temp': round(base_cpu.get('temp_c') or 0, 1),
+        },
 
         # Alerts
         'alerts': alert_messages,

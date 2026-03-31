@@ -171,7 +171,13 @@ class TelemetryStorage:
                 estop_engaged INTEGER,
                 control_age_ms INTEGER,
                 rtt_ms INTEGER,
-                control_seq INTEGER
+                control_seq INTEGER,
+
+                -- CPU stats (4 columns)
+                robot_cpu_usage REAL,
+                robot_cpu_temp REAL,
+                base_cpu_usage REAL,
+                base_cpu_temp REAL
             )
         """)
 
@@ -231,6 +237,14 @@ class TelemetryStorage:
             rtt_ms = telemetry.get('rtt_ms')
             control_seq = telemetry.get('control_seq')
 
+            # CPU stats
+            robot_cpu = telemetry.get('robot_cpu', {})
+            base_cpu = telemetry.get('base_cpu', {})
+            robot_cpu_usage = robot_cpu.get('usage_percent')
+            robot_cpu_temp = robot_cpu.get('temp_c')
+            base_cpu_usage = base_cpu.get('usage_percent')
+            base_cpu_temp = base_cpu.get('temp_c')
+
             # Insert into database
             cursor.execute("""
                 INSERT INTO telemetry (
@@ -241,13 +255,15 @@ class TelemetryStorage:
                     baro_pressure, baro_temperature, baro_altitude,
                     motor_0_current, motor_1_current, motor_2_current, motor_3_current,
                     motor_4_current, motor_5_current, motor_6_current, motor_7_current,
-                    estop_engaged, control_age_ms, rtt_ms, control_seq
+                    estop_engaged, control_age_ms, rtt_ms, control_seq,
+                    robot_cpu_usage, robot_cpu_temp, base_cpu_usage, base_cpu_temp
                 ) VALUES (
                     ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?,
                     ?, ?, ?,
                     ?, ?, ?,
+                    ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?, ?
@@ -260,7 +276,8 @@ class TelemetryStorage:
                 baro_pressure, baro_temperature, baro_altitude,
                 motor_currents[0], motor_currents[1], motor_currents[2], motor_currents[3],
                 motor_currents[4], motor_currents[5], motor_currents[6], motor_currents[7],
-                estop_engaged, control_age_ms, rtt_ms, control_seq
+                estop_engaged, control_age_ms, rtt_ms, control_seq,
+                robot_cpu_usage, robot_cpu_temp, base_cpu_usage, base_cpu_temp
             ))
 
             self.db_conn.commit()

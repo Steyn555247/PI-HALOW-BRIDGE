@@ -108,6 +108,10 @@ class WatchdogMonitor:
                     status['imu'] = sensor_data['imu']
                 if 'barometer' in sensor_data:
                     status['barometer'] = sensor_data['barometer']
+                if 'robot_cpu' in sensor_data:
+                    status['robot_cpu'] = sensor_data['robot_cpu']
+                if 'base_cpu' in sensor_data:
+                    status['base_cpu'] = sensor_data['base_cpu']
 
             logger.info(json.dumps(status))
             self.last_status_log = now

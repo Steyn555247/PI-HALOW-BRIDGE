@@ -30,6 +30,8 @@ import os
 import threading
 from typing import Optional, Dict, Any
 
+import psutil
+
 # Add parent to path for common imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
@@ -212,6 +214,25 @@ class HaLowBridge:
         """Send E-STOP engage command to Robot Pi."""
         self.control_forwarder.send_command(cmd_type, data)
 
+    def _read_cpu_stats(self) -> dict:
+        """Read CPU usage and temperature for this Pi."""
+        usage = psutil.cpu_percent(interval=None)
+        temp = None
+        try:
+            temps = psutil.sensors_temperatures()
+            zone = temps.get('cpu_thermal') or temps.get('coretemp') or []
+            if zone:
+                temp = round(zone[0].current, 1)
+        except Exception:
+            pass
+        if temp is None:
+            try:
+                with open('/sys/class/thermal/thermal_zone0/temp') as f:
+                    temp = round(int(f.read().strip()) / 1000.0, 1)
+            except Exception:
+                pass
+        return {'usage_percent': round(usage, 1), 'temp_c': temp}
+
     def _on_command_sent(self, command_type: str, data: Dict[str, Any], success: bool):
         """Callback when a command is sent - record to storage."""
         if self.control_storage:
@@ -236,6 +257,9 @@ class HaLowBridge:
 
         # Include RTT in telemetry for backend
         telemetry['rtt_ms'] = self.state.get_rtt()
+
+        # Attach Base Pi CPU stats
+        telemetry['base_cpu'] = self._read_cpu_stats()
 
         # Add to telemetry buffer
         if self.telemetry_buffer:
@@ -371,6 +395,10 @@ class HaLowBridge:
                             sensor_data['imu'] = latest_telemetry['imu']
                         if 'barometer' in latest_telemetry:
                             sensor_data['barometer'] = latest_telemetry['barometer']
+                        if 'robot_cpu' in latest_telemetry:
+                            sensor_data['robot_cpu'] = latest_telemetry['robot_cpu']
+                        if 'base_cpu' in latest_telemetry:
+                            sensor_data['base_cpu'] = latest_telemetry['base_cpu']
 
                 # Log status periodically
                 self.watchdog.log_status(
